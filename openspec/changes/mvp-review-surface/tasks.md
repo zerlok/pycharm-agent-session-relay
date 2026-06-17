@@ -9,7 +9,7 @@
 
 ## 2. Comment model and store
 
-- [ ] 2.1 Define `ReviewComment` (id, subject, anchorText?, contextHash?, body, status) with an optional `RangeMarker`, where `subject` is an open type — Line/LineRange/File/Files/Project. The MVP authors line-range, whole-file, and project subjects; model `Files` (multi-file) now so it is additive, even though authoring it is deferred
+- [ ] 2.1 Define `ReviewComment` (id, subject, anchorText?, contextHash?, body, status) with an optional `RangeMarker`, where `subject` is an open type — Line/LineRange/File/Files/Project. The MVP authors only the line/range subject; model File/Files/Project now (stubbed) so adding them later is additive, even though authoring them is deferred
 - [ ] 2.2 Implement a `Project`-scoped comment store service holding the pending batch with add/edit/delete and a change-listener mechanism
 - [ ] 2.3 Implement context-hash computation over the surrounding lines at author time for line-anchored comments (no fuzzy re-anchoring yet)
 
@@ -17,26 +17,24 @@
 
 - [ ] 3.1 Implement the "Add review comment" `AnAction`: read active file + selection (fallback to caret line), capture range and anchor text
 - [ ] 3.2 Show a popup text area to enter the body; on confirm, create the comment and a `RangeMarker`; on cancel, do nothing
-- [ ] 3.3 Implement whole-file authoring (a comment on the active file with no line range) and batch-level authoring (a detached comment with no path, e.g. from the tool window)
-- [ ] 3.4 Register the actions with default keybindings and add them to the editor popup menu
-- [ ] 3.5 Allow authoring on any file (no dependency on VCS-changed status)
+- [ ] 3.3 Register the action with a default keybinding and add it to the editor popup menu
+- [ ] 3.4 Allow authoring on any file (no dependency on VCS-changed status)
 
 ## 4. Displaying comments (gutter + tool window)
 
 - [ ] 4.1 Implement gutter markers via `LineMarkerProvider`/`GutterIconRenderer` for commented line ranges, refreshing on store changes
-- [ ] 4.2 Implement a `ToolWindowFactory` listing pending comments grouped by file (line range or whole-file indicator + body snippet), with batch-level comments under a dedicated group
-- [ ] 4.3 Wire navigate-to-line (open/focus file, move caret to the comment's start line; open at top for whole-file comments) on double-click
-- [ ] 4.4 Add edit and delete actions in both the gutter and the tool window; keep gutter/tool window in sync with the store
+- [ ] 4.2 Implement a `ToolWindowFactory` listing pending comments grouped by file (line range + body snippet)
+- [ ] 4.3 Wire navigate-to-line (open/focus file, move caret to the comment's start line) on double-click
+- [ ] 4.4 Add a delete action in both the gutter and the tool window; keep gutter/tool window in sync with the store
 
 ## 5. VFS refresh
 
 - [ ] 5.1 Implement a "Refresh & review" action that triggers an async VFS refresh so edits written to disk (locally or synced from a sandbox) become visible (the change-view/diff capture-mode entry point is postponed)
 
-## 6. Export and preview
+## 6. Export
 
 - [ ] 6.1 Implement the Exporter as a pure function `ReviewBatch -> text` (markdown), isolated from delivery
-- [ ] 6.2 Render each scope: line-anchored `@path#Lstart-end`, single-line, whole-file `@path`, and batch-level top-level note; handle the empty-batch case
-- [ ] 6.3 Implement a live preview (in the tool window) driven by the same Exporter so preview and file never diverge
+- [ ] 6.2 Render the line-anchored scope: `@path#Lstart-end` and the single-line form; handle the empty-batch case
 
 ## 7. Submit
 
@@ -48,4 +46,4 @@
 ## 8. Verification
 
 - [ ] 8.1 Run `./gradlew test` and `./gradlew verifyPlugin`; fix any plugin-verifier issues
-- [ ] 8.2 Manually verify the end-to-end flow in `runIde`: author comments (line / whole-file / batch) → see gutter/tool window → preview → submit writes REVIEW.md and notifies → batch cleared
+- [ ] 8.2 Manually verify the end-to-end flow in `runIde`: author line-anchored comments → see gutter/tool window → submit writes REVIEW.md and notifies → batch cleared

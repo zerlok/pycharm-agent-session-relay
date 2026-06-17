@@ -1,22 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: Preview the exported review
-
-The plugin SHALL render a live preview of the export (the same markdown that would be written to `REVIEW.md`) from the current set of pending comments, so the user can see exactly what the agent will receive before submitting.
-
-#### Scenario: Preview reflects pending comments
-
-- **WHEN** the user opens the preview with two pending comments
-- **THEN** the preview shows a markdown document containing both comments with their file/line references and bodies
-
-#### Scenario: Preview updates after a change
-
-- **WHEN** the user deletes a comment while the preview is open
-- **THEN** the preview no longer includes the deleted comment
-
 ### Requirement: Export comments as Claude-format markdown
 
-On submit, the plugin SHALL serialize the pending comments into a single markdown document using Claude Code's native reference syntax and write it to `REVIEW.md` at the project root. A line-anchored comment SHALL render as `@<project-relative-path>#L<start>-<end>` followed by the body; a whole-file comment SHALL render as `@<project-relative-path>` (no line range); a batch-level comment SHALL render as a top-level note with no reference.
+On submit, the plugin SHALL serialize the pending comments into a single markdown document using Claude Code's native reference syntax and write it to `REVIEW.md` at the project root. A line-anchored comment SHALL render as `@<project-relative-path>#L<start>-<end>` followed by the body.
 
 #### Scenario: REVIEW.md written with line-anchored references
 
@@ -27,16 +13,6 @@ On submit, the plugin SHALL serialize the pending comments into a single markdow
 
 - **WHEN** a comment is anchored to a single line N
 - **THEN** its reference is written as `@<path>#L<N>` (or an equivalent single-line form Claude resolves)
-
-#### Scenario: Whole-file reference format
-
-- **WHEN** a comment is anchored to a whole file `src/app.py` with no line range
-- **THEN** its reference is written as `@src/app.py` (no `#L` range) followed by the body
-
-#### Scenario: Batch-level note
-
-- **WHEN** a batch-level comment (no path) with body "prefer smaller PRs" is submitted
-- **THEN** `REVIEW.md` includes that body as a top-level note with no file reference
 
 #### Scenario: No comments to submit
 

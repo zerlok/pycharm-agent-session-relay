@@ -19,20 +19,6 @@ The plugin SHALL provide a keybound editor action that creates a comment anchore
 - **WHEN** the user invokes the action but dismisses the popup without entering text
 - **THEN** no comment is stored and the editor is unchanged
 
-### Requirement: Author a whole-file or batch-level comment
-
-The plugin SHALL allow a comment to be anchored to a **whole file** (a project-relative path with no line range) or to the **batch/project** (detached from any file — general feedback on the whole review). A whole-file comment SHALL store the path with no start/end line; a batch-level comment SHALL store neither a path nor a line range. Both SHALL capture a free-text body.
-
-#### Scenario: Whole-file comment
-
-- **WHEN** the user invokes the "Add file comment" action on the active file and enters body text
-- **THEN** a comment is stored with that file's project-relative path, no line range, and the entered body
-
-#### Scenario: Batch-level comment
-
-- **WHEN** the user invokes the "Add review comment" action with no active file context (e.g. from the tool window) and enters body text
-- **THEN** a comment is stored with no path and no line range, holding only the entered body
-
 ### Requirement: Comments may be anchored to any open file
 
 The plugin SHALL allow comments on any open file in the project, not only files reported as changed by VCS. Authoring SHALL NOT depend on the change view or any other capture mode — opening a file and selecting is the single MVP entry point. (A change-view / diff entry point is a postponed capture mode.)
@@ -58,31 +44,21 @@ The plugin SHALL render a gutter icon on each line range that has a pending comm
 
 ### Requirement: List pending comments in a tool window
 
-The plugin SHALL provide a tool window listing all pending comments grouped by file, each entry showing the line range (or a whole-file indicator) and a snippet of the body, with an action to navigate to the comment's location in the editor. Batch-level comments (no path) SHALL appear under a dedicated group separate from the per-file groups.
+The plugin SHALL provide a tool window listing all pending comments grouped by file, each entry showing the line range and a snippet of the body, with an action to navigate to the comment's location in the editor.
 
 #### Scenario: Navigate from the tool window
 
-- **WHEN** the user double-clicks a file or line-anchored comment entry in the tool window
-- **THEN** the corresponding file opens (or is focused) with the caret at the comment's start line (or the file is opened at the top for a whole-file comment)
+- **WHEN** the user double-clicks a line-anchored comment entry in the tool window
+- **THEN** the corresponding file opens (or is focused) with the caret at the comment's start line
 
 #### Scenario: Grouping by file
 
 - **WHEN** comments exist across two files
 - **THEN** the tool window shows two file groups, each listing its comments in line order
 
-#### Scenario: Batch-level comments grouped separately
+### Requirement: Delete pending comments
 
-- **WHEN** a batch-level comment (no path) and a file comment both exist
-- **THEN** the tool window shows the batch-level comment under its own group, distinct from the file groups
-
-### Requirement: Edit and delete pending comments
-
-The plugin SHALL allow the user to edit the body of, or delete, any pending comment from either the gutter or the tool window.
-
-#### Scenario: Edit a comment body
-
-- **WHEN** the user edits a comment and saves new body text
-- **THEN** the stored comment's body is updated and the tool window reflects the new text
+The plugin SHALL allow the user to delete any pending comment from either the gutter or the tool window.
 
 #### Scenario: Delete a comment
 

@@ -10,12 +10,12 @@ Environment constraints that shape this design:
 
 **Goals:**
 - A buildable, `runIde`-able plugin scaffolded from the IntelliJ Platform Plugin Template.
-- Author / view / edit / delete comments at three subject scopes — line range, whole file, batch/project (detached); gutter markers + tool window.
+- Author / view / delete line-anchored comments (line / line range); gutter markers + tool window.
 - Submit → write `REVIEW.md` (Claude-format) at the project root → notify the user it is ready to hand to the idle session.
 - A comment data model whose subject is open (so multi-file is not foreclosed) and that already carries `anchorText` + `contextHash` (so later re-anchoring is additive, not a rewrite).
 
 **Non-Goals (deferred to follow-on changes):**
-- Capture modes beyond the open-file base (the changed-files diff / change-view entry and the plan-file entry); multi-file comment authoring; multi-session/worktree-aware delivery (the MVP targets a single project root); automatic relay (typing the instruction into the active agent terminal widget); terminal launcher; persistence across IDE restarts; `ssh + tmux send-keys` fallback; remote plan capture; non-Claude exporters; fuzzy re-anchoring of drifted comments.
+- Capture modes beyond the open-file base (the changed-files diff / change-view entry and the plan-file entry); whole-file and batch-level comment authoring; multi-file comment authoring; in-place comment editing (delete + re-add only); live export preview; multi-session/worktree-aware delivery (the MVP targets a single project root); automatic relay (typing the instruction into the active agent terminal widget); terminal launcher; persistence across IDE restarts; `ssh + tmux send-keys` fallback; remote plan capture; non-Claude exporters; fuzzy re-anchoring of drifted comments.
 
 ## Decisions
 
@@ -32,13 +32,13 @@ Each comment holds a live `RangeMarker` (tracks in-IDE edits automatically) **an
 Standard trusted APIs. The tool window subscribes to the store and renders comments grouped by file with navigate-to-line (open file + move caret to start line). *Why:* these are the documented, stable extension points and match the architecture doc's reuse list.
 
 ### D5 — Exporter is a pure function `ReviewBatch → text`
-Serialization (Claude `@path#Lstart-end` + body; markdown file) is isolated from delivery so the same output feeds both the live preview and the written `REVIEW.md`, and so non-Claude exporters can slot in later behind the same seam. *Why:* preview and file must never diverge; keeps the agent-specific bit small and swappable.
+Serialization (Claude `@path#Lstart-end` + body; markdown file) is isolated from delivery so the output feeds the written `REVIEW.md` today and the deferred live preview later, and so non-Claude exporters can slot in later behind the same seam. *Why:* keeps the agent-specific bit small and swappable; when the preview lands it reuses the exact exporter, so it can never diverge from the file.
 
 ### D6 — Delivery (MVP) = write `REVIEW.md`, then notify the user
 `REVIEW.md` is written at the project base path on the local filesystem (the MVP targets a single project root — no worktree inference); for a remote agent the session's own sync carries it to the sandbox. The plugin then shows a notification that the file is ready. The user returns to their idle session and asks the agent to read it. *Why:* writing the file is the whole deliverable; the `@path#L` refs inside resolve natively for Claude, so a human typing `read REVIEW.md` is enough to close the loop. Deferring the typed delivery removes the terminal-widget dependency (and its targeting ambiguity) from the MVP without blocking the workflow. *Follow-on:* automatic relay — obtain the active terminal widget via `TerminalToolWindowManager` and send the instruction + Enter (falling back to the notification when no widget is available); and, later, an `ssh tmux send-keys` bring-your-own-terminal path.
 
-### D7 — Comment subject is an open type; the MVP authors three of its scopes
-Model a comment's **subject** as an open type (per the architecture domain model): `Line` / `LineRange` (path + lines), `File` (path, no range), `Files` (several paths), `Project` (no path). The MVP **authors** three of them — line range, whole file, and batch/project — but the type is designed so multi-file is additive, not a rewrite. The Exporter renders each subject distinctly (`@path#Lstart-end`, `@path`, a top-level note for project; `Files` is reserved for the multi-file follow-on). *Why:* line-only comments can't express "this file as a whole" or "about the change overall", both common in review; leaving the subject open keeps the deferred multi-file scope from forcing a model change later. *Trade-off:* a small sealed hierarchy / nullable fields and a render branch per subject — isolated behind D5's pure function.
+### D7 — Comment subject is an open type; the MVP authors only the line/range scope
+Model a comment's **subject** as an open type (per the architecture domain model): `Line` / `LineRange` (path + lines), `File` (path, no range), `Files` (several paths), `Project` (no path). The MVP **authors and exports only the line/range scope**; `File` (whole-file), `Project` (batch-level), and `Files` (multi-file) exist in the type but their authoring and export are deferred (see non-goals). *Why:* keeping the subject open costs almost nothing now (a sealed hierarchy with the other cases stubbed) and makes each deferred scope an additive case + render branch later, never a model rewrite — line/range alone is the irreducible review primitive. *Trade-off:* the type carries cases the MVP doesn't exercise — acceptable, and it keeps the domain model aligned with the architecture doc.
 
 ### D8 — Threading discipline
 File I/O runs on a background thread (`Task.Backgroundable` / pooled executor). VFS refresh uses async refresh. PSI/document reads use read actions; store/UI mutations happen on the EDT. *Why:* the architecture doc's cross-cutting rule; blocking the EDT on I/O is the classic new-plugin freeze.
@@ -54,5 +54,4 @@ File I/O runs on a background thread (`Task.Backgroundable` / pooled executor). 
 
 - Build tool: scaffold with the Gradle template for the MVP; a Maven build was floated and is parked (the template is Gradle-only, so Maven would mean dropping it). Revisit only on a concrete need.
 - Single-line reference rendering: `@path#L10` vs `@path#L10-10` — pick whichever Claude resolves most reliably during implementation; the spec allows either.
-- Whole-file / batch-level reference rendering: `@path` (no range) for a whole-file comment, and a plain top-of-document note for batch-level — confirm Claude resolves the bare `@path` form during implementation.
 - Whether "Refresh & review" should also be wired to frame-activation refresh now or left manual — default manual for the MVP.
