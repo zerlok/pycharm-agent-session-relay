@@ -7,11 +7,6 @@ Relay is a **two-way channel** between you and an agent CLI (Claude Code, Codex,
 agent): the terminal carries **agent → you**, and a batched, line-anchored **review surface**
 carries **you → agent** — relayed into the specific session that made the changes.
 
-Relay targets the increasingly common setup where the agent runs **remotely** — in a tmux
-session on a sandbox, with files synced to your machine via [mutagen](https://mutagen.io) —
-while your IDE runs **locally**. You review the agent's changes in PyCharm, leave multiple
-line-anchored comments, and relay them all back to the idle session in one batch.
-
 > **Status: pre-implementation.** The design is settled (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md));
 > the first code change scaffolds the IntelliJ Platform Plugin Template. There is no build yet.
 
@@ -32,15 +27,13 @@ Relay is a **line-anchored annotation layer over any file in the project**, batc
 exported to an agent CLI. The canonical flow:
 
 ```
- 0. agent edits files remotely  →  mutagen syncs them to your machine
- 1. open the change view in PyCharm
- 2. select lines, leave a comment  (repeat across files)
+ 0. agent edits files  →  they land in your local working tree (synced in, if remote)
+ 1. Refresh & review  →  VFS refresh so the edits on disk show up
+ 2. open a file, select lines, leave a comment  (repeat across files; whole-file and batch-level too)
  3. see / edit / delete pending comments  (gutter icons + tool window)
  4. open the tool window, preview the batch, add more
- 5. (the agent sits idle in tmux, waiting for input)
- 6. press Submit  →  Relay writes REVIEW.md (mutagen syncs it) and types
-                     "read REVIEW.md and address the comments" into the terminal
-                  →  the agent resumes and works from your review
+ 5. (the agent sits idle, waiting for input)
+ 6. press Submit  →  Relay writes REVIEW.md at the project root and tells agent to work with it
 ```
 
 The export uses Claude Code's native reference syntax (`@path/file.py#L10-15` + comment
@@ -51,26 +44,22 @@ collide with the agent's own edits under bidirectional sync.
 
 - It does **not** emulate a terminal — it reuses PyCharm's.
 - It does **not** render diffs — it reuses PyCharm's diff viewer.
-- It does **not** use git as a transport between hosts — file sync carries everything,
-  including the exported `REVIEW.md`. (Reading your *local* working-tree diff for change
-  detection is fine; the constraint is only about cross-host commit/push/pull.)
-
-## Design
-
-The full design — core domain model (Comment → ReviewBatch → Exporter → Delivery → Session),
-capture modes, the Submit flow, anchor-drift handling, multi-agent/worktree support, and
-scope phasing — lives in **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**. Read it before
-proposing or implementing anything.
-
-The first shippable slice is the single-session review surface (architecture doc §8);
-everything else (the terminal launcher, persistence, multi-session delivery, remote plan
-capture, non-Claude exporters) is a follow-on layered on the same core.
+- It does **not** use git as a transport between hosts, and it does **not** manage file sync —
+  it only reads and writes your *local* working tree (including the exported `REVIEW.md`).
+  Carrying files to and from a remote sandbox is the session's own job. (Reading your local
+  working-tree diff for change detection is fine; the constraint is only about cross-host
+  commit/push/pull.)
 
 ## Development
 
-This is a **spec-driven** repository. Work flows through [OpenSpec](https://github.com/Fission-AI/OpenSpec):
-specs live in `openspec/specs/`, in-flight change proposals in `openspec/changes/`. Before
-writing feature code, there should be a corresponding change proposal.
+This is a **spec-driven** repository ([OpenSpec](https://github.com/Fission-AI/OpenSpec)):
+every feature starts as a change proposal under `openspec/changes/` before any code. Two
+sources of truth, read both before proposing or implementing:
+
+- **`openspec/changes/`** — product requirements: *what the system is for the user* (capture
+  modes, user flow, per-capability behavior, scope phasing).
+- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — technical design: *how the solution
+  works and why* (domain model, anchor drift, multi-session mechanics, threading, SDK reuse).
 
 ```bash
 openspec list              # active changes and their status
@@ -80,5 +69,4 @@ openspec list              # active changes and their status
 /opsx:archive              # finalize a completed change
 ```
 
-Build, run, and test commands will be added here once the first change scaffolds the
-Gradle plugin template.
+Build, run, and test commands land here once the first change scaffolds the Gradle plugin template.
