@@ -1,11 +1,15 @@
 ## 1. Scaffold the plugin (IntelliJ Platform Plugin Template, Kotlin/Gradle)
 
-- [ ] 1.1 Bootstrap from the IntelliJ Platform Plugin Template: `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, and the Gradle wrapper (Maven is parked — see the design's open questions)
-- [ ] 1.2 Set `pluginGroup`/plugin ID to `io.github.zerlok.agentsessionrelay`, plugin name "Agent Session Relay", vendor, and a target IntelliJ platform/since-build
-- [ ] 1.3 Create `src/main/resources/META-INF/plugin.xml` with name, description, and vendor (no terminal dependency yet — automatic relay is a follow-on)
-- [ ] 1.4 Create the Kotlin source root `src/main/kotlin/io/github/zerlok/agentsessionrelay/`
-- [ ] 1.5 Verify the skeleton builds and launches: `./gradlew buildPlugin` and `./gradlew runIde`
-- [ ] 1.6 Add build/run/test commands to README; keep the GitHub CI workflow from the template
+- [x] 1.1 Bootstrap the Gradle build: `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, and the Gradle wrapper (IntelliJ Platform Gradle Plugin 2.x; Maven is parked — see the design's open questions)
+- [x] 1.2 Set `pluginGroup`/plugin ID to `io.github.zerlok.agentsessionrelay`, plugin name "Agent Session Relay", vendor, and target platform (PyCharm Community 2024.2, since-build 242)
+- [x] 1.3 Create `src/main/resources/META-INF/plugin.xml` with name, description, and vendor (no terminal dependency yet — automatic relay is a follow-on)
+- [x] 1.4 Create the Kotlin source root `src/main/kotlin/io/github/zerlok/agentsessionrelay/`
+- [x] 1.5 Verify the skeleton builds: `./gradlew buildPlugin` produces the zip and `./gradlew verifyPlugin` reports **Compatible** (PC-242). `runIde` is a manual step — it needs a display.
+- [x] 1.6 Add build/run/test commands + manual-install instructions to README (CI workflow deferred — scaffolded by hand, not from the GitHub template)
+
+> **Ahead of plan:** a thin vertical slice of authoring (§3) and gutter display (§4.1) is already
+> wired as a build smoke-test — hover a line → `+` gutter icon → inline comment popup. The popup's
+> **Add** only logs + notifies; the real comment model/store (§2) and persistence are still to do.
 
 ## 2. Comment model and store
 

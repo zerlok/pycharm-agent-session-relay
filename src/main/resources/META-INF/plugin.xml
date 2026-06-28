@@ -1,0 +1,23 @@
+<idea-plugin>
+    <id>io.github.zerlok.agentsessionrelay</id>
+    <name>Agent Session Relay</name>
+    <vendor email="danil.troshnev@gmail.com" url="https://github.com/zerlok">zerlok</vendor>
+
+    <description><![CDATA[
+        Review an agent's changes in your IDE and relay batched, line-anchored comments
+        back into its running session.<br/>
+        <br/>
+        <b>Early MVP:</b> hover a line in the editor to reveal a <b>+</b> gutter icon; click it
+        to open an inline comment popup (GitHub/GitLab style). The <i>Add</i> button currently
+        just logs the comment — wiring into the review batch comes next.
+    ]]></description>
+
+    <!-- Works in any IntelliJ-based IDE, including PyCharm. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity
+            implementation="io.github.zerlok.agentsessionrelay.hover.RelayHoverInstaller"/>
+        <notificationGroup id="Agent Session Relay" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>

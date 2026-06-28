@@ -69,4 +69,32 @@ openspec list              # active changes and their status
 /opsx:archive              # finalize a completed change
 ```
 
-Build, run, and test commands land here once the first change scaffolds the Gradle plugin template.
+### Build & run
+
+The plugin is built with the [IntelliJ Platform Gradle Plugin](https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html);
+the target IDE is **PyCharm Community 2024.2** (`platformType`/`platformVersion` in
+`gradle.properties`). Requires a JDK 17.
+
+```bash
+./gradlew buildPlugin   # produce build/distributions/agent-session-relay-<version>.zip
+./gradlew runIde        # launch a sandbox PyCharm with the plugin pre-installed (fastest dev loop)
+./gradlew verifyPlugin   # run the JetBrains plugin verifier
+```
+
+The first build downloads the target IDE (~1 GB) into the Gradle cache.
+
+### Try it in PyCharm (manual test)
+
+The current MVP slice: **hover any line in the editor → a green `+` appears in the gutter →
+click it → an inline comment popup opens.** The popup's **Add** button just logs the comment
+(`Help → Show Log in Files…` / the IDE console) and pops an "Agent Session Relay" notification —
+nothing is stored yet.
+
+Two ways to test:
+
+1. **Sandbox (recommended).** `./gradlew runIde` launches a throwaway PyCharm with the plugin
+   already loaded. Open any file and hover a line.
+2. **Install into your real PyCharm.** Build the zip, then in PyCharm:
+   `Settings → Plugins → ⚙ (gear) → Install Plugin from Disk…` → pick
+   `build/distributions/agent-session-relay-0.1.0.zip` → restart. To see the log output, open
+   `Help → Show Log in Files…` (or the **Internal Console**) and look for `Relay add-comment:` lines.
