@@ -23,7 +23,10 @@ class AddCommentGutterIconRenderer(
 
     override fun getClickAction(): AnAction = object : AnAction() {
         override fun actionPerformed(e: AnActionEvent) {
-            AddCommentPopup.show(editor, line)
+            val project = editor.project ?: return
+            val controller = CommentDraftController.getInstance(project)
+            val (start, end) = controller.rangeFor(editor, line)
+            controller.open(editor, start, end)
         }
     }
 
