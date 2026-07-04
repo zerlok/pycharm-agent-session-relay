@@ -73,7 +73,7 @@ openspec list              # active changes and their status
 
 The plugin is built with the [IntelliJ Platform Gradle Plugin](https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html);
 the target IDE is **PyCharm Community 2024.2** (`platformType`/`platformVersion` in
-`gradle.properties`). Requires a JDK 17.
+`gradle.properties`). Requires a JDK 21.
 
 ```bash
 ./gradlew buildPlugin   # produce build/distributions/agent-session-relay-<version>.zip
