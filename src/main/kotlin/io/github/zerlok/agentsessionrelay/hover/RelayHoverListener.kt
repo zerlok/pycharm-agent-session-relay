@@ -10,7 +10,8 @@ import com.intellij.openapi.project.Project
 
 /**
  * Tracks the line under the mouse and renders a single "+" gutter icon on it (GitHub/GitLab
- * style). Clicking the icon opens [AddCommentPopup]. Only one hover marker exists at a time.
+ * style). Clicking the icon opens an inline comment draft via [CommentDraftController]. Only one
+ * hover marker exists at a time.
  */
 class RelayHoverListener(private val project: Project) : EditorMouseMotionListener, EditorMouseListener {
 

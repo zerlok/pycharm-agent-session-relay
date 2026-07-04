@@ -50,10 +50,10 @@ class CommentDraft private constructor(
         val lines = if (startLine == endLine) "line ${startLine + 1}" else "lines ${startLine + 1}-${endLine + 1}"
         LOG.info("Relay add-comment: file=${file?.path} $lines body=\"${body.trim()}\"")
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Agent Session Relay")
+            .getNotificationGroup(NOTIFICATION_GROUP_ID)
             .createNotification(
                 "Relay: comment captured (not yet stored)",
-                "$lines" + if (body.isBlank()) "" else " — " + body.trim().take(120),
+                lines + if (body.isBlank()) "" else " — " + body.trim().take(120),
                 NotificationType.INFORMATION,
             )
             .notify(editor.project)
@@ -70,6 +70,10 @@ class CommentDraft private constructor(
 
     companion object {
         private val LOG = logger<CommentDraft>()
+
+        // NOTE: must match the <notificationGroup id="…"> registered in META-INF/plugin.xml,
+        // which is the canonical source; a mismatch makes notifications silently no-op.
+        private const val NOTIFICATION_GROUP_ID = "Agent Session Relay"
 
         /** Light blue wash over the commented lines, à la a pull-request review selection. */
         private val RANGE_BACKGROUND = JBColor(Color(0xDD, 0xE7, 0xFF), Color(0x2A, 0x3A, 0x5A))
@@ -103,7 +107,9 @@ class CommentDraft private constructor(
                 lineWrap = true
                 wrapStyleWord = true
             }
-            val panel = buildPanel(editor, textArea)
+            val addButton = JButton("Add review comment")
+            val cancelButton = JButton("Cancel")
+            val panel = buildPanel(editor, textArea, addButton, cancelButton)
 
             val properties = EditorEmbeddedComponentManager.Properties(
                 EditorEmbeddedComponentManager.ResizePolicy.none(),
@@ -123,7 +129,10 @@ class CommentDraft private constructor(
 
             val draft = CommentDraft(editor, highlighter, inlay, start, end)
 
-            wireActions(panel, textArea, submit = { draft.submit(textArea.text.orEmpty()); onClose() }, cancel = onClose)
+            val submit = { draft.submit(textArea.text.orEmpty()); onClose() }
+            addButton.addActionListener { submit() }
+            cancelButton.addActionListener { onClose() }
+            registerShortcuts(panel, submit = submit, cancel = onClose)
 
             ApplicationManager.getApplication().invokeLater {
                 if (inlay.isValid) textArea.requestFocusInWindow()
@@ -131,9 +140,12 @@ class CommentDraft private constructor(
             return draft
         }
 
-        private fun buildPanel(editor: EditorEx, textArea: JBTextArea): JPanel {
-            val addButton = JButton("Add review comment")
-            val cancelButton = JButton("Cancel")
+        private fun buildPanel(
+            editor: EditorEx,
+            textArea: JBTextArea,
+            addButton: JButton,
+            cancelButton: JButton,
+        ): JPanel {
             val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
                 isOpaque = false
                 add(cancelButton)
@@ -144,18 +156,10 @@ class CommentDraft private constructor(
                 border = JBUI.Borders.empty(8, 12)
                 add(JBScrollPane(textArea), BorderLayout.CENTER)
                 add(buttons, BorderLayout.SOUTH)
-                putClientProperty(ADD_BUTTON, addButton)
-                putClientProperty(CANCEL_BUTTON, cancelButton)
             }
         }
 
-        private const val ADD_BUTTON = "relay.addButton"
-        private const val CANCEL_BUTTON = "relay.cancelButton"
-
-        private fun wireActions(panel: JPanel, textArea: JBTextArea, submit: () -> Unit, cancel: () -> Unit) {
-            (panel.getClientProperty(ADD_BUTTON) as JButton).addActionListener { submit() }
-            (panel.getClientProperty(CANCEL_BUTTON) as JButton).addActionListener { cancel() }
-
+        private fun registerShortcuts(panel: JPanel, submit: () -> Unit, cancel: () -> Unit) {
             // Esc cancels; Ctrl/Cmd+Enter submits (like a PR review box).
             panel.registerKeyboardAction(
                 { cancel() },

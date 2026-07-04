@@ -7,7 +7,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import javax.swing.Icon
 
-/** The "+" icon shown in the gutter of the hovered line; clicking it opens the comment popup. */
+/** The "+" icon shown in the gutter of the hovered line; clicking it opens an inline comment draft. */
 class AddCommentGutterIconRenderer(
     private val editor: Editor,
     private val line: Int,
