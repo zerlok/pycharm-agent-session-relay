@@ -3,6 +3,10 @@ package io.github.zerlok.agentsessionrelay.hover
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CustomShortcutSet
+import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
@@ -15,17 +19,20 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Cursor
 import java.awt.FlowLayout
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.JButton
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.KeyStroke
 
@@ -132,10 +139,18 @@ class CommentDraft private constructor(
             val submit = { draft.submit(textArea.text.orEmpty()); onClose() }
             addButton.addActionListener { submit() }
             cancelButton.addActionListener { onClose() }
-            registerShortcuts(panel, submit = submit, cancel = onClose)
+            registerShortcuts(textArea, draft, submit = submit, cancel = onClose)
 
+            // The inlay isn't laid out yet, so requesting focus now (or via a bare
+            // requestFocusInWindow) no-ops and the editor keeps the keyboard — every keystroke
+            // then edits the code, not the box. Defer to after layout and route through
+            // IdeFocusManager, which owns the async focus queue and wins over the editor
+            // re-grabbing focus after the gutter click.
+            val focusManager = editor.project?.let { IdeFocusManager.getInstance(it) }
             ApplicationManager.getApplication().invokeLater {
-                if (inlay.isValid) textArea.requestFocusInWindow()
+                if (!inlay.isValid) return@invokeLater
+                if (focusManager != null) focusManager.requestFocus(textArea, true)
+                else textArea.requestFocusInWindow()
             }
             return draft
         }
@@ -152,27 +167,66 @@ class CommentDraft private constructor(
                 add(addButton)
             }
             return JPanel(BorderLayout(0, JBUI.scale(6))).apply {
+                isOpaque = true
                 background = editor.colorsScheme.defaultBackground
                 border = JBUI.Borders.empty(8, 12)
+                // Show a normal arrow (not the editor's text I-beam) while hovering the box chrome.
+                cursor = Cursor.getDefaultCursor()
                 add(JBScrollPane(textArea), BorderLayout.CENTER)
                 add(buttons, BorderLayout.SOUTH)
+                // Without a mouse listener the panel's padding/background isn't an event target, so
+                // Swing retargets clicks and drags over it to the editor underneath — which then
+                // selects code. Listening here makes the panel swallow those events, and a click on
+                // the box chrome moves focus into the text area.
+                addMouseListener(object : MouseAdapter() {
+                    override fun mousePressed(e: MouseEvent) {
+                        textArea.requestFocusInWindow()
+                    }
+                })
             }
         }
 
-        private fun registerShortcuts(panel: JPanel, submit: () -> Unit, cancel: () -> Unit) {
-            // Esc cancels; Ctrl/Cmd+Enter submits (like a PR review box).
-            panel.registerKeyboardAction(
-                { cancel() },
-                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
-            )
-            for (modifier in intArrayOf(InputEvent.CTRL_DOWN_MASK, InputEvent.META_DOWN_MASK)) {
-                panel.registerKeyboardAction(
-                    { submit() },
-                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, modifier),
-                    JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT,
-                )
+        private fun registerShortcuts(
+            textArea: JBTextArea,
+            parent: Disposable,
+            submit: () -> Unit,
+            cancel: () -> Unit,
+        ) {
+            // The box lives inside the editor's content component, so Enter/Ctrl+Enter/Esc are first
+            // seen by the IDE key dispatcher, which resolves the surrounding editor from the focus
+            // owner's ancestors and runs the *editor's* action (Enter -> newline in the code) before
+            // Swing ever delivers the key. A plain Swing registerKeyboardAction loses that race.
+            // Actions registered on the focused component itself, however, are dispatched ahead of
+            // keymap/editor actions — so these win while the text area has focus.
+            fun anAction(run: () -> Unit) = object : AnAction() {
+                override fun actionPerformed(e: AnActionEvent) = run()
             }
+            fun shortcuts(vararg keyStrokes: KeyStroke) =
+                CustomShortcutSet(*keyStrokes.map { KeyboardShortcut(it, null) }.toTypedArray())
+            // Plain/Shift Enter inserts a newline in the box (the editor would otherwise eat it).
+            anAction { textArea.replaceSelection("\n") }.registerCustomShortcutSet(
+                shortcuts(
+                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
+                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK),
+                ),
+                textArea,
+                parent,
+            )
+            // Ctrl/Cmd+Enter submits (like a PR review box).
+            anAction(submit).registerCustomShortcutSet(
+                shortcuts(
+                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),
+                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.META_DOWN_MASK),
+                ),
+                textArea,
+                parent,
+            )
+            // Esc cancels.
+            anAction(cancel).registerCustomShortcutSet(
+                shortcuts(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0)),
+                textArea,
+                parent,
+            )
         }
     }
 }
