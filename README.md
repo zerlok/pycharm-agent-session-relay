@@ -85,8 +85,9 @@ The first build downloads the target IDE (~1 GB) into the Gradle cache.
 
 ### Try it in PyCharm (manual test)
 
-The current MVP slice: **hover any line in the editor → a green `+` appears in the gutter →
-click it → an inline comment popup opens.** The popup's **Add** button just logs the comment
+The current MVP slice: **hover any line in the editor → a `+` appears in the gutter →
+click it → an inline comment box opens below the line (a block inlay, GitHub/GitLab style).**
+The box's **Add review comment** button (or Ctrl/Cmd+Enter) just logs the comment
 (`Help → Show Log in Files…` / the IDE console) and pops an "Agent Session Relay" notification —
 nothing is stored yet.
 
