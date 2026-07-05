@@ -7,8 +7,9 @@ Relay is a **two-way channel** between you and an agent CLI (Claude Code, Codex,
 agent): the terminal carries **agent → you**, and a batched, line-anchored **review surface**
 carries **you → agent** — relayed into the specific session that made the changes.
 
-> **Status: pre-implementation.** The design is settled (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md));
-> the first code change scaffolds the IntelliJ Platform Plugin Template. There is no build yet.
+> **Status: MVP implemented.** The full annotate → batch → export → deliver loop works (see
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design). Persistence across restarts, typed
+> terminal relay, and multi-session/worktree support remain deferred follow-ons.
 
 - **Plugin ID:** `io.github.zerlok.agentsessionrelay`
 - **Language:** Kotlin (IntelliJ Platform Plugin Template, Gradle)
@@ -85,11 +86,13 @@ The first build downloads the target IDE (~1 GB) into the Gradle cache.
 
 ### Try it in PyCharm (manual test)
 
-The current MVP slice: **hover any line in the editor → a `+` appears in the gutter →
-click it → an inline comment box opens below the line (a block inlay, GitHub/GitLab style).**
-The box's **Add review comment** button (or Ctrl/Cmd+Enter) just logs the comment
-(`Help → Show Log in Files…` / the IDE console) and pops an "Agent Session Relay" notification —
-nothing is stored yet.
+Walk the full loop: **hover a line → click the `+` → type a comment (drag the highlighted range's
+edges to resize) → Ctrl/Cmd+Enter to add.** The comment lands in the batch: a gutter marker appears
+on its range and it shows up in the **Relay Review** tool window (bottom), grouped by file —
+double-click to navigate, right-click a gutter marker to delete. Add a few across files, then press
+**Submit** in the tool window: Relay writes `REVIEW.md` at the project root (`@path#L` references +
+your bodies), notifies you, and clears the batch. **Refresh & review** forces a VFS refresh so
+on-disk agent edits show up first. (In-memory only — the batch resets when the IDE restarts.)
 
 Two ways to test:
 
@@ -97,5 +100,4 @@ Two ways to test:
    already loaded. Open any file and hover a line.
 2. **Install into your real PyCharm.** Build the zip, then in PyCharm:
    `Settings → Plugins → ⚙ (gear) → Install Plugin from Disk…` → pick
-   `build/distributions/agent-session-relay-0.1.0.zip` → restart. To see the log output, open
-   `Help → Show Log in Files…` (or the **Internal Console**) and look for `Relay add-comment:` lines.
+   `build/distributions/agent-session-relay-0.1.0.zip` → restart.
