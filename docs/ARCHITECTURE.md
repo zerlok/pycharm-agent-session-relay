@@ -22,6 +22,7 @@ batched and exported to an agent CLI. That is the core. Everything else is an
 entry point into, or a transport out of, that one surface.
 
 **Relay does NOT:**
+
 - emulate a terminal — it reuses PyCharm's (`org.jetbrains.plugins.terminal`).
 - render diffs — it reuses PyCharm's diff viewer / change view.
 - own file sync between hosts — it reads and writes the **local** filesystem only. A
@@ -72,7 +73,7 @@ In this scheme:
 
 ---
 
-## 3. Core domain model
+## 3. Core domain model & layered design
 
 ```
   Comment ── a body linked to a Subject (what the comment is about)
@@ -110,11 +111,85 @@ capability — the model here just doesn't foreclose any of them.*
 Three things are pluggable / first-class (the original handoff treated them as
 fixed):
 
-| Concept       | Why pluggable                                                        |
-|---------------|----------------------------------------------------------------------|
-| **Exporter**  | Export format is agent-specific (Claude = markdown + `@path#L`; others differ). |
-| **Session**   | Multiple agents in one repo via worktrees; delivery is per-session.  |
-| **Capture mode** | How files enter the surface: any-file (base), changed-files (diff), plan file. |
+| Concept          | Why pluggable                                                                   |
+|------------------|---------------------------------------------------------------------------------|
+| **Exporter**     | Export format is agent-specific (Claude = markdown + `@path#L`; others differ). |
+| **Session**      | Multiple agents in one repo via worktrees; delivery is per-session.             |
+| **Capture mode** | How files enter the surface: any-file (base), changed-files (diff), plan file.  |
+
+### 3.1 Layers — storage · logic · presentation
+
+Relay is built as strict, one-directional layers. **The view depends only on a logic API
+and an event topic; it never holds a storage handle.** Logic mediates every read and
+write; storage sits behind it and is swappable (in-memory today, persistent later)
+without the view or logic knowing.
+
+```
+  depends inward ──▶                             seam = MessageBus Topic
+  PRESENTATION
+    Controller  AnAction (add / delete / refresh) ─┐ commands
+    View        EditorReviewOverlay (per editor)   │ + queries         ▲ events
+                ToolWindow · Inlay · gutter        ▼                   │
+  LOGIC (application)
+    ReviewBatchService   @Service(PROJECT)
+      the ONLY API the view sees: commands + queries; owns & dispatches events;
+      no Swing, no editor imports
+  STORAGE
+    ReviewBatchStorage   — dumb CRUD over records
+      in-memory Map now → PersistentStateComponent later
+  DOMAIN  (pure Kotlin, serializable, no platform imports)
+    ReviewComment { id, text, subject, status, anchorText?, contextHash? }
+    Subject = Line | LineRange | File | Files | Project
+```
+
+| Layer      | Home                          | Platform primitive                                                                                 |
+|------------|-------------------------------|----------------------------------------------------------------------------------------------------|
+| Domain     | pure Kotlin records           | —                                                                                                  |
+| Storage    | `ReviewBatchStorage`          | `PersistentStateComponent` (later)                                                                 |
+| Logic      | `ReviewBatchService`          | `@Service(PROJECT)`                                                                                |
+| Seam       | `ReviewBatchListener`         | `MessageBus` `Topic`                                                                               |
+| View       | overlay / tool window / inlay | `EditorFactoryListener`, `DocumentMarkupModel`, `Inlay`, `GutterIconRenderer`, `ToolWindowFactory` |
+| Controller | actions                       | `AnAction`                                                                                         |
+
+**Storage is a separate layer from logic, not a private field of it.** The abstraction it
+hides — *how* records are held — must not leak up into the logic that mediates them, so the
+persistence swap (Map → `PersistentStateComponent`) touches storage alone.
+
+### 3.2 Inert data vs. live objects
+
+The store holds **only inert, serializable data**: a file **url** (not a `VirtualFile`),
+**line numbers** (not a `RangeMarker`), the text, and anchoring seeds (`anchorText`,
+`contextHash`). Every live platform object — `Document`, `RangeHighlighter`, `Inlay`,
+`VirtualFile` — is a **per-editor projection the view derives from that data and frees when
+the editor closes.**
+
+While a file is open, its `RangeHighlighter` (which *is* a `RangeMarker`) is the **live
+source of truth for position**; the stored line numbers are the **last-known anchor**,
+refreshed from the live marker only at sync points (export, save, editor close). Storage
+stays pure while in-IDE edits still track — with no storage write per keystroke.
+
+### 3.3 Rendering & editor lifecycle (retained-mode, per-editor)
+
+Editor rendering is **retained-mode**: register a markup/inlay object once and the platform
+repaints it. The view maintains live objects, not frames, and reconciles them **by diff** on store events (add new,
+dispose removed, leave the rest). Key rules (per-decision detail in [
+`comment-batch/design.md`](../openspec/changes/comment-batch/design.md)):
+
+- **Ownership is per-editor.** An `EditorReviewOverlay` per editor holds
+  `Map<CommentId, …>`, created on `EditorFactoryListener.editorCreated` and freed on
+  `editorReleased`.
+- **Filter and seed.** `EditorFactory` is application-wide: handle only editors whose
+  `project` matches, whose `editorKind == MAIN_EDITOR`, and whose document has a file. On
+  startup, seed from `EditorFactory.getAllEditors()` — `editorCreated` fires only for
+  editors opened afterward.
+- **Disposer to the service, not the editor alone.** Parent per-editor disposables to the
+  project `@Service` so they release on dynamic plugin unload too; dispose them in
+  `editorReleased`. Never parent to `Project` / `Application` directly.
+- **Highlight & gutter on the document markup** (`DocumentMarkupModel.forDocument`, shared
+  across splits); **inlays are per-editor** (`InlayModel` lives on the editor).
+- **Invalidation → orphaned.** If the anchored line is deleted the highlighter/inlay go
+  invalid; mark the comment stale/orphaned (keep it in the tool window, drop its markers)
+  rather than render a dead object.
 
 ---
 
@@ -138,6 +213,7 @@ authored, listed, exported, or delivered.
 ## 5. Cross-cutting decisions
 
 ### 5.1 Diff source — reuse the local working tree
+
 The "no git" constraint is about *transport between hosts*, not reading your own
 working tree. Use `ChangeListManager` / `LineStatusTracker` (git working-tree
 diff) as the primary change source; snapshot-at-launch is a fallback for
@@ -147,11 +223,13 @@ VFS may lag; provide an explicit "Refresh & review" action and rely on
 frame-activation refresh.
 
 ### 5.2 Anchor drift — defense in depth, mostly free
+
 ```
   in-IDE edits        ──▶  RangeMarker tracks automatically
   out-of-IDE (agent)  ──▶  re-anchor on VFS refresh via anchorText + contextHash
   still ambiguous     ──▶  mark comment "stale", surface to human — never mis-point
 ```
+
 Export is the deliverable and happens at submit time, so **loop discipline**
 (annotate while the agent is idle → submit before it resumes) is the primary
 defense; the content/context hash is the safety net. The data model therefore
@@ -159,14 +237,30 @@ carries `anchorText` + `contextHash` from day one, but Tier 1 needs no fuzzy
 matching.
 
 ### 5.3 Threading / EDT
-- SSH / external processes / snapshot hashing → **background** (never EDT).
-- PSI/VFS reads → **read actions**; model mutations → **write actions** (EDT,
-  `WriteCommandAction`).
-- Inlay / gutter / store mutations → EDT.
+
+- SSH / external processes / snapshot hashing / export process → **background** (never
+  EDT); hand background code an **immutable snapshot** of the batch taken on the EDT.
+- **`WriteCommandAction` is only for Document/PSI/VFS edits.** Adding, deleting, or
+  re-anchoring a comment mutates Relay's *own* state, not the document — do it on the EDT
+  without a write command.
+- PSI/VFS reads → **read actions**; navigation touching PSI/indexes → guard with
+  `DumbService.runWhenSmart`.
+- Inlay / gutter / markup / store mutations and listener callbacks → EDT.
 
 ### 5.4 Persistence
-Comment store persists via `PersistentStateComponent`, re-anchored on load by
-`relativePath` + line + content hash. (Scoped as first polish, not strictly MVP.)
+
+Deferred (not MVP): the in-memory `ReviewBatchStorage` is swapped for a
+`PersistentStateComponent` behind the same logic API, stored per-user in `workspace.xml`
+(`StoragePathMacros.WORKSPACE_FILE`) — these are private, uncommitted drafts. Two
+constraints the plan must honor:
+
+- **Serialize a flat DTO, not the domain type.** `xmlb` needs a no-arg constructor and
+  mutable (`var`) bean properties and does not serialize a Kotlin sealed hierarchy — so
+  persist a flat `PersistedComment` (`subjectKind` + url + start/end + text + anchor data)
+  with `@XCollection`, mapped to/from the sealed `Subject` at the boundary.
+- **Re-anchor lazily, off the load path.** `loadState` runs early (pre-index) and loads raw
+  records only; resolve the url and re-anchor by `anchorText` + `contextHash` when the
+  file's editor opens (marking ambiguous comments stale) — never in `loadState`.
 
 ---
 
@@ -218,11 +312,13 @@ core — **not in the MVP**.
 
 ## 8. SDK reference (reuse vs avoid)
 
-**Reuse (trusted/public):** `Inlay` / `EditorCustomElementRenderer`,
-`LineMarkerProvider`, `GutterIconRenderer`, `RangeMarker`, `ChangeListManager` /
-`LineStatusTracker`, `ToolWindowFactory`, `PersistentStateComponent`,
-`com.intellij.diff.*`, `org.jetbrains.plugins.terminal` /
-`TerminalToolWindowManager`.
+**Reuse (trusted/public):** `@Service` (project-level), `MessageBus` / `Topic`,
+`EditorFactory` / `EditorFactoryListener`, `DocumentMarkupModel`, `Disposer`, `Inlay` /
+`EditorCustomElementRenderer`, `GutterIconRenderer`, `RangeMarker` / `RangeHighlighter`,
+`ChangeListManager` / `LineStatusTracker`, `ToolWindowFactory`, `PersistentStateComponent`,
+`com.intellij.diff.*`, `org.jetbrains.plugins.terminal` / `TerminalToolWindowManager`.
+(`LineMarkerProvider` is pull/PSI-driven — right for static code markers, *not* for the
+user-authored, mutable comment markers, which ride a `GutterIconRenderer` on the highlighter.)
 
 **Avoid:** the bundled GitHub/GitLab review-thread UI and
 `com.intellij.collaboration.*` (internal, unstable, not licensed for reuse).
