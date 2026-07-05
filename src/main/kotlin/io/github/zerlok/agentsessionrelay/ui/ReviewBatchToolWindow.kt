@@ -91,6 +91,7 @@ private class ReviewBatchPanel(
     private fun buildToolbar() = ActionManager.getInstance().createActionToolbar(
         "RelayReviewBatch",
         DefaultActionGroup(
+            SubmitReviewAction(),
             RefreshAndReviewAction(),
             DeleteSelectedAction(),
             ClearBatchAction(),
