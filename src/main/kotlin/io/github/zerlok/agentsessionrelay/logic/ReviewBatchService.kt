@@ -49,6 +49,20 @@ class ReviewBatchService(private val project: Project) {
         return comment
     }
 
+    /**
+     * The position-sync seam (ARCHITECTURE §3.2): replaces a stored comment's [subject] with the
+     * position the view read from the live marker, then publishes the change. This is the flush a
+     * later stage (review-delivery) runs at submit/export time so the exported line range is the
+     * *current* one — not a per-keystroke write. No-op if the id is unknown.
+     */
+    fun updatePosition(id: CommentId, subject: Subject) {
+        val existing = storage.get(id) ?: return
+        if (existing.subject == subject) return
+        val updated = existing.copy(subject = subject)
+        storage.update(updated)
+        publisher().commentUpdated(updated)
+    }
+
     fun removeComment(id: CommentId) {
         val removed = storage.remove(id) ?: return
         publisher().commentRemoved(removed)

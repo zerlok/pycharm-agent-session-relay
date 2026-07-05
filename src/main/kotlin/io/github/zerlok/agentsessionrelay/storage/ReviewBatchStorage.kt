@@ -17,6 +17,9 @@ interface ReviewBatchStorage {
 
     fun add(comment: ReviewComment)
 
+    /** Replaces the record with the same id in place (keeping order); no-op if it isn't present. */
+    fun update(comment: ReviewComment)
+
     /** Removes and returns the comment, or null if it wasn't present. */
     fun remove(id: CommentId): ReviewComment?
 
@@ -35,6 +38,11 @@ class InMemoryReviewBatchStorage : ReviewBatchStorage {
 
     override fun add(comment: ReviewComment) {
         comments[comment.id] = comment
+    }
+
+    // A LinkedHashMap put on an existing key replaces the value in place, preserving insertion order.
+    override fun update(comment: ReviewComment) {
+        if (comments.containsKey(comment.id)) comments[comment.id] = comment
     }
 
     override fun remove(id: CommentId): ReviewComment? = comments.remove(id)

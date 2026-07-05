@@ -16,6 +16,13 @@ interface ReviewBatchListener {
 
     fun commentRemoved(comment: ReviewComment) {}
 
+    /**
+     * A stored comment's data changed in place (same id) — e.g. its subject was re-synced to the
+     * live marker's current line range at a sync point (ARCHITECTURE §3.2). Surfaces reconcile by
+     * diff and refresh what they show for this id; the live marker stays the source of truth.
+     */
+    fun commentUpdated(comment: ReviewComment) {}
+
     fun batchCleared() {}
 
     companion object {

@@ -5,13 +5,15 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 
 /**
- * Wires the presentation layer on project open: touches [RelayHoverService] so it registers the
- * editor hover listeners, and [ReviewBatchNotifier] so it subscribes to batch changes. Both are
- * project services that dispose with the project.
+ * Wires the presentation layer on project open by touching its project services so they initialize:
+ * [RelayHoverService] (editor hover "+" listeners), [ReviewBatchNotifier] (batch-change
+ * notifications), and [EditorReviewOverlayService] (the per-editor stored-comment gutter markers).
+ * All are project services that dispose with the project.
  */
 class RelayHoverInstaller : ProjectActivity {
     override suspend fun execute(project: Project) {
         project.service<RelayHoverService>()
         project.service<ReviewBatchNotifier>()
+        project.service<EditorReviewOverlayService>()
     }
 }

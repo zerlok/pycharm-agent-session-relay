@@ -19,5 +19,8 @@
         <postStartupActivity
             implementation="io.github.zerlok.agentsessionrelay.ui.RelayHoverInstaller"/>
         <notificationGroup id="Agent Session Relay" displayType="BALLOON"/>
+        <!-- id must match ReviewBatchToolWindowFactory.TOOL_WINDOW_ID -->
+        <toolWindow id="Relay Review" anchor="bottom" icon="AllIcons.General.Balloon"
+                    factoryClass="io.github.zerlok.agentsessionrelay.ui.ReviewBatchToolWindowFactory"/>
     </extensions>
 </idea-plugin>
