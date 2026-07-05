@@ -28,6 +28,15 @@ dependencies {
         zipSigner()
         testFramework(TestFrameworkType.Platform)
     }
+
+    // JUnit4 for plugin unit tests. The Platform test framework runs on the JUnit4 runner but does
+    // not put the API on the test compile classpath, so declare it explicitly.
+    testImplementation("junit:junit:4.13.2")
+
+    // The IntelliJ Platform test base (UsefulTestCase) references org.opentest4j.AssertionFailedError
+    // at class-load time, but the platform test-framework artifact does not pull opentest4j onto the
+    // unit-test classpath. Declare it explicitly (from mavenCentral) so BasePlatformTestCase can initialize.
+    testRuntimeOnly("org.opentest4j:opentest4j:1.3.0")
 }
 
 intellijPlatform {
