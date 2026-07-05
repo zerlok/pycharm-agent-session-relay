@@ -9,8 +9,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
+import com.intellij.openapi.editor.markup.CustomHighlighterRenderer
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
@@ -30,6 +32,8 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.FlowLayout
+import java.awt.Graphics
+import java.awt.Point
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -37,22 +41,64 @@ import java.awt.event.MouseEvent
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.KeyStroke
+import kotlin.math.abs
 
 /**
  * One in-progress review comment: a blue rectangle over the commented line range plus an
  * inline, full-width comment box rendered as a block inlay *below* the range (it pushes the
  * following code down rather than floating over it — GitHub/GitLab style).
  *
+ * The commented range is **adjustable after the box opens** (`adjustable-comment-range`): the top
+ * and bottom borders of the wash are draggable resize grips. Per D1, an edge-drag *hides* the box
+ * (disposing the inlay so it reserves no vertical space) for an unobstructed code view and rebuilds
+ * it once on release under the range's new bottom line, with the typed body preserved and focus
+ * returned via the same deferred [IdeFocusManager] path the box already uses. The wash keeps
+ * rendering and resizes live throughout the drag. Edge hit-testing / cursor / consume() are driven
+ * by [RelayHoverListener] on the shared editor mouse channel and routed here via the internal
+ * `onMouse*` handlers while this is the project's active draft.
+ *
  * [submit] hands the captured comment to [ReviewBatchService] (the logic layer); user feedback is
  * driven off the store event by `ReviewBatchNotifier`, not raised here.
  */
 class CommentDraft private constructor(
     private val editor: EditorEx,
-    private val highlighter: RangeHighlighter,
-    private val inlay: Inlay<*>,
-    private val startLine: Int,
-    private val endLine: Int,
+    private var start: Int,
+    private var end: Int,
+    private val onClose: () -> Unit,
 ) : Disposable {
+
+    /** Which border of the wash is being hovered / dragged. */
+    private enum class Edge { TOP, BOTTOM }
+
+    // The wash background attributes, reused every time the highlighter is (re)created on resize.
+    private val attributes = TextAttributes().apply { backgroundColor = RANGE_BACKGROUND }
+
+    // Paints the brighter/thicker top and bottom edge lines that signal draggability (D4). It reads
+    // the current start/end and the hovered/dragged edge off the draft, so a bare repaint reflects
+    // both a live resize and a hover change without touching the highlighter.
+    private val edgeRenderer = CustomHighlighterRenderer { ed, _, g -> paintEdges(ed, g) }
+
+    // Live wash over the commented lines; recreated on each range change (positions can't be moved
+    // on an existing RangeHighlighter). This is the VIEW's live position marker (ARCHITECTURE §3.2).
+    private var highlighter: RangeHighlighter = createHighlighter()
+
+    // The comment body component is persistent across hide/rebuild, so its text (including an empty
+    // body) is preserved for free; each rebuild only re-wraps it in a fresh panel/inlay.
+    private val textArea = JBTextArea(4, 0).apply {
+        lineWrap = true
+        wrapStyleWord = true
+    }
+    private val resizeCursor: Cursor = Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
+
+    private var inlay: Inlay<*>? = null
+    private var shortcutsRegistered = false
+    private var hoveredEdge: Edge? = null
+    private var draggingEdge: Edge? = null
+
+    private fun doSubmit() {
+        submit(textArea.text.orEmpty())
+        onClose()
+    }
 
     private fun submit(body: String) {
         val project = editor.project ?: return
@@ -62,38 +108,254 @@ class CommentDraft private constructor(
         val anchorText = document.getText(TextRange(rangeStartOffset(document), rangeEndOffset(document)))
         val contextHash = Anchoring.contextHash(contextWindow(document))
         val subject =
-            if (startLine == endLine) Subject.Line(file.url, startLine)
-            else Subject.LineRange(file.url, startLine, endLine)
+            if (start == end) Subject.Line(file.url, start)
+            else Subject.LineRange(file.url, start, end)
 
         ReviewBatchService.getInstance(project).addComment(subject, body.trim(), anchorText, contextHash)
     }
 
-    private fun rangeStartOffset(document: Document): Int = document.getLineStartOffset(startLine)
+    private fun rangeStartOffset(document: Document): Int = document.getLineStartOffset(start)
 
-    private fun rangeEndOffset(document: Document): Int = document.getLineEndOffset(endLine)
+    private fun rangeEndOffset(document: Document): Int = document.getLineEndOffset(end)
 
     /** The comment's lines plus [CONTEXT_LINES] of surrounding code — the re-anchoring seed. */
     private fun contextWindow(document: Document): String {
-        val first = (startLine - CONTEXT_LINES).coerceAtLeast(0)
-        val last = (endLine + CONTEXT_LINES).coerceAtMost(document.lineCount - 1)
+        val first = (start - CONTEXT_LINES).coerceAtLeast(0)
+        val last = (end + CONTEXT_LINES).coerceAtMost(document.lineCount - 1)
         return document.getText(TextRange(document.getLineStartOffset(first), document.getLineEndOffset(last)))
     }
 
+    // ---- range + wash -----------------------------------------------------------------------
+
+    private fun createHighlighter(): RangeHighlighter {
+        val document = editor.document
+        val highlighter = editor.markupModel.addRangeHighlighter(
+            document.getLineStartOffset(start),
+            document.getLineEndOffset(end),
+            HighlighterLayer.SELECTION - 1,
+            attributes,
+            HighlighterTargetArea.LINES_IN_RANGE,
+        )
+        highlighter.customRenderer = edgeRenderer
+        return highlighter
+    }
+
+    /**
+     * Moves the wash to [newStart]..[newEnd], clamped to the document bounds and to a minimum of one
+     * line (the two edges cannot cross). A RangeHighlighter's offsets are immutable, so the wash is
+     * recreated in place; the highlighter keeps rendering throughout, so it never blinks during a
+     * drag (task 4.3).
+     */
+    private fun resize(newStart: Int, newEnd: Int) {
+        val lastLine = editor.document.lineCount - 1
+        val s = newStart.coerceIn(0, lastLine)
+        val e = newEnd.coerceIn(s, lastLine)
+        if (s == start && e == end) return
+        start = s
+        end = e
+        if (highlighter.isValid) editor.markupModel.removeHighlighter(highlighter)
+        highlighter = createHighlighter()
+        repaintEdges()
+    }
+
+    // ---- edge affordance + drag (routed from RelayHoverListener) ---------------------------
+
+    internal fun handles(editor: Editor): Boolean = this.editor === editor
+
+    /** Editor-Y of the top border of the range (top of [start]) in editor coordinates. */
+    private fun topEdgeY(): Int = editor.logicalPositionToXY(LogicalPosition(start, 0)).y
+
+    /** Editor-Y of the bottom border of the range (bottom of [end]) in editor coordinates. */
+    private fun bottomEdgeY(): Int = editor.logicalPositionToXY(LogicalPosition(end, 0)).y + editor.lineHeight
+
+    /** The edge whose grab zone contains editor-Y [y], preferring the nearer one; null if neither. */
+    private fun edgeAt(y: Int): Edge? {
+        val grab = JBUI.scale(GRAB_ZONE_DP)
+        val dTop = abs(y - topEdgeY())
+        val dBottom = abs(y - bottomEdgeY())
+        return when {
+            dTop <= grab && dTop <= dBottom -> Edge.TOP
+            dBottom <= grab -> Edge.BOTTOM
+            else -> null
+        }
+    }
+
+    /** Maps an editor-Y to a document line, clamped to the document bounds. */
+    private fun lineAtY(y: Int): Int =
+        editor.xyToLogicalPosition(Point(0, y)).line.coerceIn(0, editor.document.lineCount - 1)
+
+    private fun setHover(edge: Edge?) {
+        editor.setCustomCursor(this, if (edge != null) resizeCursor else null)
+        if (edge != hoveredEdge) {
+            hoveredEdge = edge
+            repaintEdges()
+        }
+    }
+
+    /**
+     * On edge-press: enter edge-drag mode, capture the body implicitly (the text area is retained),
+     * and dispose the inlay so the box reserves no space while the code is sized (D1). The wash stays.
+     */
+    private fun beginDrag(edge: Edge) {
+        draggingEdge = edge
+        hideBox()
+        editor.setCustomCursor(this, resizeCursor)
+        repaintEdges()
+    }
+
+    /** On release: leave edge-drag mode and rebuild the box under the range's new bottom line (D1). */
+    private fun endDrag() {
+        draggingEdge = null
+        showBox()
+        editor.setCustomCursor(this, null)
+        repaintEdges()
+    }
+
+    /**
+     * Mouse moved (no button): show the resize cursor + brighten the edge when the pointer is within
+     * an edge grab zone. Returns true when an edge is hoverable, so the caller suppresses the hover
+     * "+" so the two affordances don't compete (task 2.3).
+     */
+    internal fun onMouseMoved(y: Int, editingArea: Boolean): Boolean {
+        if (draggingEdge != null) return true
+        val edge = if (editingArea) edgeAt(y) else null
+        setHover(edge)
+        return edge != null
+    }
+
+    /**
+     * Mouse pressed: if it lands in an edge grab zone, claim the gesture (start an edge-drag) so the
+     * caller can consume() the event and the editor never begins a text selection (D2). Returns true
+     * when the gesture was claimed.
+     */
+    internal fun onMousePressed(y: Int, editingArea: Boolean): Boolean {
+        if (draggingEdge != null || !editingArea) return false
+        val edge = edgeAt(y) ?: return false
+        beginDrag(edge)
+        return true
+    }
+
+    /** Mouse dragged in edge-drag mode: map Y to a line and resize live. Returns true while dragging. */
+    internal fun onMouseDragged(y: Int): Boolean {
+        val edge = draggingEdge ?: return false
+        val line = lineAtY(y)
+        when (edge) {
+            Edge.TOP -> resize(line.coerceAtMost(end), end)
+            Edge.BOTTOM -> resize(start, line.coerceAtLeast(start))
+        }
+        return true
+    }
+
+    /** Mouse released: end an in-progress edge-drag (rebuild the box). Returns true if one was active. */
+    internal fun onMouseReleased(): Boolean {
+        if (draggingEdge == null) return false
+        endDrag()
+        return true
+    }
+
+    /** Pointer left the editor: drop the hover affordance (but never abort an in-progress drag). */
+    internal fun onMouseExited() {
+        if (draggingEdge == null) setHover(null)
+    }
+
+    private fun repaintEdges() {
+        editor.contentComponent.repaint()
+    }
+
+    private fun paintEdges(editor: Editor, g: Graphics) {
+        val width = editor.contentComponent.width
+        val topY = editor.logicalPositionToXY(LogicalPosition(start, 0)).y
+        val bottomY = editor.logicalPositionToXY(LogicalPosition(end, 0)).y + editor.lineHeight
+        paintEdge(g, width, topY, hoveredEdge == Edge.TOP || draggingEdge == Edge.TOP)
+        paintEdge(g, width, bottomY, hoveredEdge == Edge.BOTTOM || draggingEdge == Edge.BOTTOM)
+    }
+
+    private fun paintEdge(g: Graphics, width: Int, y: Int, active: Boolean) {
+        val thickness = if (active) JBUI.scale(2) else 1
+        g.color = if (active) EDGE_ACTIVE else EDGE_IDLE
+        g.fillRect(0, y - thickness / 2, width, thickness)
+    }
+
+    // ---- inline box (block inlay) ----------------------------------------------------------
+
+    /**
+     * (Re)builds the comment box as a block inlay under the range's current bottom line and returns
+     * whether it succeeded. Called once on open and again on each edge-drag release; the retained
+     * [textArea] carries the body across, so the rebuilt box shows the previously typed text. Focus
+     * is re-requested through the deferred [IdeFocusManager] path so the box — not the editor —
+     * takes the keyboard.
+     */
+    private fun showBox(): Boolean {
+        val addButton = JButton("Add review comment")
+        val cancelButton = JButton("Cancel")
+        val panel = buildPanel(editor, textArea, addButton, cancelButton)
+
+        val properties = EditorEmbeddedComponentManager.Properties(
+            EditorEmbeddedComponentManager.ResizePolicy.none(),
+            null,
+            /* relatesToPrecedingText = */ true,
+            /* showAbove = */ false,
+            /* showWhenFolded = */ true,
+            /* fullWidth = */ true,
+            /* priority = */ 0,
+            /* offset = */ editor.document.getLineEndOffset(end),
+        )
+        val newInlay = EditorEmbeddedComponentManager.getInstance().addComponent(editor, panel, properties)
+            ?: return false
+        inlay = newInlay
+
+        addButton.addActionListener { doSubmit() }
+        cancelButton.addActionListener { onClose() }
+        // Register the box's key handling once — parented to the draft, so it survives box rebuilds
+        // (the text area is retained) and is cleaned up when the draft is disposed.
+        if (!shortcutsRegistered) {
+            registerShortcuts(textArea, this, submit = ::doSubmit, cancel = onClose)
+            shortcutsRegistered = true
+        }
+
+        // The inlay isn't laid out yet, so requesting focus now (or via a bare
+        // requestFocusInWindow) no-ops and the editor keeps the keyboard — every keystroke
+        // then edits the code, not the box. Defer to after layout and route through
+        // IdeFocusManager, which owns the async focus queue and wins over the editor
+        // re-grabbing focus after the gutter click (or the edge-drag release).
+        val focusManager = editor.project?.let { IdeFocusManager.getInstance(it) }
+        ApplicationManager.getApplication().invokeLater {
+            if (!newInlay.isValid) return@invokeLater
+            if (focusManager != null) focusManager.requestFocus(textArea, true)
+            else textArea.requestFocusInWindow()
+        }
+        return true
+    }
+
+    /** "Hide" the box for a drag = dispose its inlay; a hidden-but-present inlay would still reserve space. */
+    private fun hideBox() {
+        inlay?.let { if (it.isValid) Disposer.dispose(it) }
+        inlay = null
+    }
+
     override fun dispose() {
+        editor.setCustomCursor(this, null)
         if (highlighter.isValid) {
             editor.markupModel.removeHighlighter(highlighter)
         }
-        if (inlay.isValid) {
-            Disposer.dispose(inlay)
-        }
+        hideBox()
     }
 
     companion object {
         // Lines of surrounding code hashed into the anchor seed on each side of the range.
         private const val CONTEXT_LINES = 3
 
+        // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
+        private const val GRAB_ZONE_DP = 4
+
         /** Light blue wash over the commented lines, à la a pull-request review selection. */
         private val RANGE_BACKGROUND = JBColor(Color(0xDD, 0xE7, 0xFF), Color(0x2A, 0x3A, 0x5A))
+
+        /** Idle edge line — a slightly stronger blue than the wash, hinting the border is grabbable. */
+        private val EDGE_IDLE = JBColor(Color(0x88, 0xA8, 0xE0), Color(0x3E, 0x54, 0x82))
+
+        /** Hovered/dragged edge line — brighter + thicker to signal the active resize grip (D4). */
+        private val EDGE_ACTIVE = JBColor(Color(0x3B, 0x74, 0xE8), Color(0x6E, 0x9B, 0xF0))
 
         /**
          * Opens a draft over [startLine]..[endLine]. [onClose] is invoked when the user submits
@@ -108,59 +370,10 @@ class CommentDraft private constructor(
             val start = startLine.coerceIn(0, document.lineCount - 1)
             val end = endLine.coerceIn(start, document.lineCount - 1)
 
-            val rangeStart = document.getLineStartOffset(start)
-            val rangeEnd = document.getLineEndOffset(end)
-
-            val attributes = TextAttributes().apply { backgroundColor = RANGE_BACKGROUND }
-            val highlighter = editor.markupModel.addRangeHighlighter(
-                rangeStart,
-                rangeEnd,
-                HighlighterLayer.SELECTION - 1,
-                attributes,
-                HighlighterTargetArea.LINES_IN_RANGE,
-            )
-
-            val textArea = JBTextArea(4, 0).apply {
-                lineWrap = true
-                wrapStyleWord = true
-            }
-            val addButton = JButton("Add review comment")
-            val cancelButton = JButton("Cancel")
-            val panel = buildPanel(editor, textArea, addButton, cancelButton)
-
-            val properties = EditorEmbeddedComponentManager.Properties(
-                EditorEmbeddedComponentManager.ResizePolicy.none(),
-                null,
-                /* relatesToPrecedingText = */ true,
-                /* showAbove = */ false,
-                /* showWhenFolded = */ true,
-                /* fullWidth = */ true,
-                /* priority = */ 0,
-                /* offset = */ rangeEnd,
-            )
-            val inlay = EditorEmbeddedComponentManager.getInstance().addComponent(editor, panel, properties)
-            if (inlay == null) {
-                editor.markupModel.removeHighlighter(highlighter)
+            val draft = CommentDraft(editor, start, end, onClose)
+            if (!draft.showBox()) {
+                draft.dispose()
                 return null
-            }
-
-            val draft = CommentDraft(editor, highlighter, inlay, start, end)
-
-            val submit = { draft.submit(textArea.text.orEmpty()); onClose() }
-            addButton.addActionListener { submit() }
-            cancelButton.addActionListener { onClose() }
-            registerShortcuts(textArea, draft, submit = submit, cancel = onClose)
-
-            // The inlay isn't laid out yet, so requesting focus now (or via a bare
-            // requestFocusInWindow) no-ops and the editor keeps the keyboard — every keystroke
-            // then edits the code, not the box. Defer to after layout and route through
-            // IdeFocusManager, which owns the async focus queue and wins over the editor
-            // re-grabbing focus after the gutter click.
-            val focusManager = editor.project?.let { IdeFocusManager.getInstance(it) }
-            ApplicationManager.getApplication().invokeLater {
-                if (!inlay.isValid) return@invokeLater
-                if (focusManager != null) focusManager.requestFocus(textArea, true)
-                else textArea.requestFocusInWindow()
             }
             return draft
         }

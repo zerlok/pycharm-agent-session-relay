@@ -15,6 +15,12 @@ class CommentDraftController : Disposable {
 
     private var active: CommentDraft? = null
 
+    /**
+     * The single in-progress draft, if any. Exposed so [RelayHoverListener] can route editor mouse
+     * events to it for edge-drag range resizing (`adjustable-comment-range`) while it is open.
+     */
+    internal val activeDraft: CommentDraft? get() = active
+
     /** Opens a draft over the given inclusive line range, replacing any current one. */
     fun open(editor: Editor, startLine: Int, endLine: Int) {
         close()

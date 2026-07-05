@@ -2,6 +2,7 @@ package io.github.zerlok.agentsessionrelay.ui
 
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.EditorMouseEvent
+import com.intellij.openapi.editor.event.EditorMouseEventArea
 import com.intellij.openapi.editor.event.EditorMouseListener
 import com.intellij.openapi.editor.event.EditorMouseMotionListener
 import com.intellij.openapi.editor.markup.HighlighterLayer
@@ -12,6 +13,13 @@ import com.intellij.openapi.project.Project
  * Tracks the line under the mouse and renders a single "+" gutter icon on it (GitHub/GitLab
  * style). Clicking the icon opens an inline comment draft via [CommentDraftController]. Only one
  * hover marker exists at a time.
+ *
+ * While a draft is open this same shared editor mouse channel drives its adjustable-range edge grips
+ * (`adjustable-comment-range`): pointer moves within an edge grab zone show the resize affordance
+ * (and suppress the competing "+"), a press on an edge claims the gesture (`consume()` so the editor
+ * never text-selects), drags resize the range live, and release rebuilds the box. All edge work is
+ * delegated to the active [CommentDraft] and is scoped to when a draft is open, so it never fights
+ * the "+" hover or the gutter markers.
  */
 class RelayHoverListener(private val project: Project) : EditorMouseMotionListener, EditorMouseListener {
 
@@ -19,9 +27,25 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
 
     private var hover: Hover? = null
 
+    private fun activeDraftFor(editor: Editor): CommentDraft? {
+        if (editor.project != project) return null
+        return CommentDraftController.getInstance(project).activeDraft?.takeIf { it.handles(editor) }
+    }
+
     override fun mouseMoved(e: EditorMouseEvent) {
         val editor = e.editor
         if (editor.project != project) return
+
+        // While a draft is open, let it own the edge affordance first. If the pointer is on a range
+        // edge, suppress the "+" so the two don't compete (task 2.3).
+        val draft = activeDraftFor(editor)
+        if (draft != null) {
+            val onEdge = draft.onMouseMoved(e.mouseEvent.point.y, e.area == EditorMouseEventArea.EDITING_AREA)
+            if (onEdge) {
+                clear()
+                return
+            }
+        }
 
         val line = lineAt(editor, e)
         if (line == null) {
@@ -38,8 +62,31 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
         hover = Hover(editor, line, highlighter)
     }
 
+    override fun mouseDragged(e: EditorMouseEvent) {
+        val draft = activeDraftFor(e.editor) ?: return
+        if (draft.onMouseDragged(e.mouseEvent.point.y)) e.consume()
+    }
+
+    override fun mousePressed(e: EditorMouseEvent) {
+        val draft = activeDraftFor(e.editor) ?: return
+        if (draft.onMousePressed(e.mouseEvent.point.y, e.area == EditorMouseEventArea.EDITING_AREA)) {
+            // Claim the gesture so the editor doesn't also start a text selection (D2). Drop the "+".
+            clear()
+            e.consume()
+        }
+    }
+
+    override fun mouseReleased(e: EditorMouseEvent) {
+        // A drag can end with the pointer off the editor; the release is still delivered here to the
+        // component that captured the press, so the box always rebuilds (design "release outside").
+        val draft = activeDraftFor(e.editor) ?: return
+        if (draft.onMouseReleased()) e.consume()
+    }
+
     override fun mouseExited(e: EditorMouseEvent) {
-        if (e.editor.project == project) clear()
+        if (e.editor.project != project) return
+        activeDraftFor(e.editor)?.onMouseExited()
+        clear()
     }
 
     private fun lineAt(editor: Editor, e: EditorMouseEvent): Int? {
