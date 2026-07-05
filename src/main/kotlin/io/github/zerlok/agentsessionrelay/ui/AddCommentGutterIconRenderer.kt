@@ -1,4 +1,4 @@
-package io.github.zerlok.agentsessionrelay.hover
+package io.github.zerlok.agentsessionrelay.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction

@@ -1,14 +1,12 @@
-package io.github.zerlok.agentsessionrelay.hover
+package io.github.zerlok.agentsessionrelay.ui
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CustomShortcutSet
 import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.ex.EditorEx
@@ -19,11 +17,15 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import io.github.zerlok.agentsessionrelay.domain.Anchoring
+import io.github.zerlok.agentsessionrelay.domain.Subject
+import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
@@ -41,8 +43,8 @@ import javax.swing.KeyStroke
  * inline, full-width comment box rendered as a block inlay *below* the range (it pushes the
  * following code down rather than floating over it — GitHub/GitLab style).
  *
- * For now [submit] only logs the comment and shows a notification; persisting it into a review
- * batch is the next change.
+ * [submit] hands the captured comment to [ReviewBatchService] (the logic layer); user feedback is
+ * driven off the store event by `ReviewBatchNotifier`, not raised here.
  */
 class CommentDraft private constructor(
     private val editor: EditorEx,
@@ -53,17 +55,28 @@ class CommentDraft private constructor(
 ) : Disposable {
 
     private fun submit(body: String) {
-        val file = FileDocumentManager.getInstance().getFile(editor.document)
-        val lines = if (startLine == endLine) "line ${startLine + 1}" else "lines ${startLine + 1}-${endLine + 1}"
-        LOG.info("Relay add-comment: file=${file?.path} $lines body=\"${body.trim()}\"")
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup(NOTIFICATION_GROUP_ID)
-            .createNotification(
-                "Relay: comment captured (not yet stored)",
-                lines + if (body.isBlank()) "" else " — " + body.trim().take(120),
-                NotificationType.INFORMATION,
-            )
-            .notify(editor.project)
+        val project = editor.project ?: return
+        val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return
+        val document = editor.document
+
+        val anchorText = document.getText(TextRange(rangeStartOffset(document), rangeEndOffset(document)))
+        val contextHash = Anchoring.contextHash(contextWindow(document))
+        val subject =
+            if (startLine == endLine) Subject.Line(file.url, startLine)
+            else Subject.LineRange(file.url, startLine, endLine)
+
+        ReviewBatchService.getInstance(project).addComment(subject, body.trim(), anchorText, contextHash)
+    }
+
+    private fun rangeStartOffset(document: Document): Int = document.getLineStartOffset(startLine)
+
+    private fun rangeEndOffset(document: Document): Int = document.getLineEndOffset(endLine)
+
+    /** The comment's lines plus [CONTEXT_LINES] of surrounding code — the re-anchoring seed. */
+    private fun contextWindow(document: Document): String {
+        val first = (startLine - CONTEXT_LINES).coerceAtLeast(0)
+        val last = (endLine + CONTEXT_LINES).coerceAtMost(document.lineCount - 1)
+        return document.getText(TextRange(document.getLineStartOffset(first), document.getLineEndOffset(last)))
     }
 
     override fun dispose() {
@@ -76,11 +89,8 @@ class CommentDraft private constructor(
     }
 
     companion object {
-        private val LOG = logger<CommentDraft>()
-
-        // NOTE: must match the <notificationGroup id="…"> registered in META-INF/plugin.xml,
-        // which is the canonical source; a mismatch makes notifications silently no-op.
-        private const val NOTIFICATION_GROUP_ID = "Agent Session Relay"
+        // Lines of surrounding code hashed into the anchor seed on each side of the range.
+        private const val CONTEXT_LINES = 3
 
         /** Light blue wash over the commented lines, à la a pull-request review selection. */
         private val RANGE_BACKGROUND = JBColor(Color(0xDD, 0xE7, 0xFF), Color(0x2A, 0x3A, 0x5A))

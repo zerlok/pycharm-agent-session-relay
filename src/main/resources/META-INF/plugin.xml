@@ -17,7 +17,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity
-            implementation="io.github.zerlok.agentsessionrelay.hover.RelayHoverInstaller"/>
+            implementation="io.github.zerlok.agentsessionrelay.ui.RelayHoverInstaller"/>
         <notificationGroup id="Agent Session Relay" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>
