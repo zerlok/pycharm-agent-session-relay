@@ -94,15 +94,85 @@ already open.
 
 ### Requirement: Surface the captured comment on submit
 
-On submit, the box SHALL close and the captured comment — the file path, the (1-based) target line
-range, and the body — SHALL be surfaced to the user. (Persisting the comment into a review batch
-and exporting it are later relay stages; in the baseline the captured comment is reported via a
-confirmation notification carrying the line range and body, and a log entry carrying the file path,
-line range, and body.)
+On submit, the box SHALL close and the captured comment SHALL be added to the pending batch as a
+`ReviewComment` — carrying the file path, the target line range, the body, a live `RangeMarker`
+created from the range, the anchor text, and a context hash. A stored-comment gutter marker SHALL
+then appear on the commented line range and the comment SHALL appear in the tool window. (The
+baseline's report-only behavior — a confirmation notification plus a log entry — is superseded by
+this persistence.)
 
-#### Scenario: Submitting reports the captured comment
+#### Scenario: Submitting adds the comment to the batch
 
 - **WHEN** the user submits a comment on a line range with a non-empty body
-- **THEN** the box closes, a confirmation notification identifying the line range is shown, and the
-  file path and line range are written to the log
+- **THEN** the box closes, a `ReviewComment` for that range is added to the store, and a
+  stored-comment gutter marker appears on the range
+
+#### Scenario: Submitted comment appears in the tool window
+
+- **WHEN** a comment is submitted
+- **THEN** it is listed in the tool window under its file, showing the line range and a body snippet
+
+### Requirement: Refresh synced files before review
+
+The plugin SHALL provide a "Refresh & review" action that triggers an asynchronous VFS refresh so
+edits written to disk (by a local agent, or synced in from a remote sandbox) become visible before
+the user reviews them.
+
+#### Scenario: Refresh surfaces synced edits
+
+- **WHEN** the agent has edited files on disk (locally, or synced from the sandbox) and the user
+  invokes "Refresh & review"
+- **THEN** the IDE reloads those files from disk so their current content and change status are shown
+
+### Requirement: Resize the comment range by dragging its edges
+
+While a comment box is open, the top and bottom borders of the highlighted line range SHALL be
+draggable resize grips. Each edge SHALL be signalled by an N-S resize cursor when the pointer is
+within a small grab zone of it. Dragging the bottom edge SHALL move the range's end line and
+dragging the top edge SHALL move its start line, growing or shrinking that side live as the pointer
+moves. The two edges SHALL NOT cross — the range SHALL be clamped to a minimum of one line and to
+the document bounds. A press that begins on an edge SHALL claim the gesture so the editor does not
+also start a text selection.
+
+#### Scenario: Grow the range from the bottom edge
+
+- **WHEN** a comment box is open on line 10 and the user drags the bottom edge down to line 12
+- **THEN** the highlighted range becomes lines 10–12
+
+#### Scenario: Shrink the range from the top edge
+
+- **WHEN** a comment box is open on lines 8–12 and the user drags the top edge down to line 10
+- **THEN** the highlighted range becomes lines 10–12
+
+#### Scenario: Range cannot collapse below one line
+
+- **WHEN** the user drags an edge past the opposite edge
+- **THEN** the range is clamped to a single line rather than inverting or disappearing
+
+#### Scenario: Edge drag does not select editor text
+
+- **WHEN** the user presses a range edge and drags to resize
+- **THEN** the range resizes and no editor text selection is created by the drag
+
+### Requirement: Hide the comment box while resizing the range
+
+Pressing a range edge SHALL hide the comment box for the duration of the drag so the code being
+sized is unobstructed. The highlighted range SHALL update live while the box is hidden. On release,
+the box SHALL reappear positioned under the range's bottom line, with any body text typed before the
+drag preserved and input focus returned to the box.
+
+#### Scenario: Box hidden during the drag
+
+- **WHEN** the user presses a range edge to begin resizing
+- **THEN** the comment box is hidden and the lines under it are fully visible while the drag continues
+
+#### Scenario: Box reappears under the new bottom line
+
+- **WHEN** the user releases the edge after resizing the range
+- **THEN** the comment box reappears directly under the range's current bottom line
+
+#### Scenario: In-progress body is preserved across the drag
+
+- **WHEN** the user has typed body text, then resizes the range and releases
+- **THEN** the reappeared box still contains the previously typed text and holds input focus
 
