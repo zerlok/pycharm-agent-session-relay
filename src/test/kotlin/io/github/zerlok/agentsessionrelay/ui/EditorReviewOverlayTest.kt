@@ -68,4 +68,51 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
 
         assertTrue(overlay.currentPositions().isEmpty())
     }
+
+    // -- Read-only inline cards (editable-inline-comments) --
+
+    /** A stored comment on this file gets a read-only card; one on another file does not. */
+    fun `test a stored comment on this file yields a card`() {
+        val comment = service.addComment(Subject.LineRange(url, 1, 2), "look here")
+        assertEquals(setOf(comment.id), overlay.cardCommentIds)
+
+        service.addComment(Subject.Line("file:///elsewhere.py", 0), "other")
+        assertEquals(setOf(comment.id), overlay.cardCommentIds)
+    }
+
+    /** `commentUpdated` (a body edit) re-renders the card in place — still one card for the comment. */
+    fun `test updating a comment body keeps a single refreshed card`() {
+        val comment = service.addComment(Subject.Line(url, 1), "old")
+        assertEquals(setOf(comment.id), overlay.cardCommentIds)
+
+        service.updateBody(comment.id, "new")
+
+        assertEquals(setOf(comment.id), overlay.cardCommentIds)
+    }
+
+    /** Deleting a comment removes its card; clearing the batch removes them all. */
+    fun `test deleting and clearing remove cards`() {
+        val a = service.addComment(Subject.Line(url, 1), "a")
+        val b = service.addComment(Subject.Line(url, 2), "b")
+        assertEquals(setOf(a.id, b.id), overlay.cardCommentIds)
+
+        service.removeComment(a.id)
+        assertEquals(setOf(b.id), overlay.cardCommentIds)
+
+        service.clear()
+        assertTrue(overlay.cardCommentIds.isEmpty())
+    }
+
+    /** The comment currently open in an edit box has no card; on close its card reappears (design D3). */
+    fun `test the currently edited comment has no card`() {
+        val comment = service.addComment(Subject.Line(url, 1), "edit me")
+        assertEquals(setOf(comment.id), overlay.cardCommentIds)
+
+        val controller = CommentDraftController.getInstance(project)
+        controller.openForEdit(myFixture.editor, comment)
+        assertTrue("edited comment's card is suppressed", overlay.cardCommentIds.isEmpty())
+
+        controller.close()
+        assertEquals(setOf(comment.id), overlay.cardCommentIds)
+    }
 }

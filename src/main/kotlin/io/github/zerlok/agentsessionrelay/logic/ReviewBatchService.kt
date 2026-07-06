@@ -63,6 +63,21 @@ class ReviewBatchService(private val project: Project) {
         publisher().commentUpdated(updated)
     }
 
+    /**
+     * The body-edit seam, mirroring [updatePosition] exactly (design D4): replaces a stored comment's
+     * [body] in place, preserving its id, subject, and all anchoring data, then publishes the change.
+     * An edit resubmit calls this alongside [updatePosition]; both drive every surface's reconcile off
+     * the same `commentUpdated` event — never delete-and-re-add. No-op if the id is unknown or the body
+     * is unchanged.
+     */
+    fun updateBody(id: CommentId, body: String) {
+        val existing = storage.get(id) ?: return
+        if (existing.body == body) return
+        val updated = existing.copy(body = body)
+        storage.update(updated)
+        publisher().commentUpdated(updated)
+    }
+
     fun removeComment(id: CommentId) {
         val removed = storage.remove(id) ?: return
         publisher().commentRemoved(removed)

@@ -112,6 +112,38 @@ class ReviewBatchServiceTest : BasePlatformTestCase() {
         assertTrue(probe.updated.isEmpty())
     }
 
+    fun `test updateBody replaces the body and publishes commentUpdated preserving everything else`() {
+        val comment = service.addComment(
+            Subject.LineRange("file:///a.py", 4, 6), "old", anchorText = "def f()", contextHash = "cafe",
+        )
+
+        service.updateBody(comment.id, "new")
+
+        val stored = service.comments().single()
+        assertEquals("new", stored.body)
+        assertEquals(comment.id, stored.id)
+        assertEquals(comment.subject, stored.subject)
+        assertEquals("def f()", stored.anchorText)
+        assertEquals("cafe", stored.contextHash)
+        assertEquals(CommentStatus.ACTIVE, stored.status)
+        assertEquals(listOf(stored), probe.updated)
+    }
+
+    fun `test updateBody to the same body does not republish`() {
+        val comment = service.addComment(Subject.Line("file:///a.py", 3), "same")
+
+        service.updateBody(comment.id, "same")
+
+        assertTrue(probe.updated.isEmpty())
+    }
+
+    fun `test updateBody on an unknown id is a silent no-op`() {
+        service.updateBody(io.github.zerlok.agentsessionrelay.domain.CommentId("nope"), "x")
+
+        assertTrue(service.comments().isEmpty())
+        assertTrue(probe.updated.isEmpty())
+    }
+
     fun `test comments preserves insertion order`() {
         val a = service.addComment(Subject.Line("file:///a.py", 1), "a")
         val b = service.addComment(Subject.Line("file:///b.py", 2), "b")

@@ -27,6 +27,7 @@ import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import io.github.zerlok.agentsessionrelay.domain.Anchoring
+import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.BorderLayout
@@ -61,11 +62,17 @@ import kotlin.math.abs
  *
  * [submit] hands the captured comment to [ReviewBatchService] (the logic layer); user feedback is
  * driven off the store event by `ReviewBatchNotifier`, not raised here.
+ *
+ * The same box does double duty as the **edit** surface (design D1): when [editing] is a stored
+ * comment, the body field is seeded with its body, the box opens over its current range, and
+ * [submit] routes to an in-place `updateBody` + `updatePosition` (same id) instead of `addComment`.
+ * Everything else — the wash, edge-drag resize, key capture, deferred focus — is identical.
  */
 class CommentDraft private constructor(
     private val editor: EditorEx,
     private var start: Int,
     private var end: Int,
+    private val editing: ReviewComment?,
     private val onClose: () -> Unit,
 ) : Disposable {
 
@@ -123,6 +130,11 @@ class CommentDraft private constructor(
     private var hoveredEdge: Edge? = null
     private var draggingEdge: Edge? = null
 
+    init {
+        // Edit mode: pre-fill the body with the comment's current text so the user revises in place.
+        if (editing != null) bodyField.text = editing.body
+    }
+
     private fun doSubmit() {
         submit(bodyField.text)
         onClose()
@@ -133,13 +145,23 @@ class CommentDraft private constructor(
         val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return
         val document = editor.document
 
-        val anchorText = document.getText(TextRange(rangeStartOffset(document), rangeEndOffset(document)))
-        val contextHash = Anchoring.contextHash(contextWindow(document))
         val subject =
             if (start == end) Subject.Line(file.url, start)
             else Subject.LineRange(file.url, start, end)
+        val service = ReviewBatchService.getInstance(project)
 
-        ReviewBatchService.getInstance(project).addComment(subject, body.trim(), anchorText, contextHash)
+        val editing = editing
+        if (editing == null) {
+            // New comment: capture the anchor seeds and add it (baseline behavior).
+            val anchorText = document.getText(TextRange(rangeStartOffset(document), rangeEndOffset(document)))
+            val contextHash = Anchoring.contextHash(contextWindow(document))
+            service.addComment(subject, body.trim(), anchorText, contextHash)
+        } else {
+            // Edit: an in-place update of the same comment (design D1/D4). Both commands publish
+            // `commentUpdated`, and `updatePosition` is a no-op when the range didn't move.
+            service.updateBody(editing.id, body.trim())
+            service.updatePosition(editing.id, subject)
+        }
     }
 
     private fun rangeStartOffset(document: Document): Int = document.getLineStartOffset(start)
@@ -314,7 +336,7 @@ class CommentDraft private constructor(
      * takes the keyboard.
      */
     private fun showBox(): Boolean {
-        val addButton = JButton("Add review comment")
+        val addButton = JButton(if (editing != null) "Update comment" else "Add review comment")
         val cancelButton = JButton("Cancel")
         val panel = buildPanel(editor, bodyField, addButton, cancelButton)
 
@@ -389,11 +411,34 @@ class CommentDraft private constructor(
         private val EDGE_ACTIVE = JBColor(Color(0x3B, 0x74, 0xE8), Color(0x6E, 0x9B, 0xF0))
 
         /**
-         * Opens a draft over [startLine]..[endLine]. [onClose] is invoked when the user submits
-         * or cancels, so the owner can dispose this draft. Returns null if the editor can't host
-         * an inline component.
+         * Opens a draft to author a new comment over [startLine]..[endLine]. [onClose] is invoked
+         * when the user submits or cancels, so the owner can dispose this draft. Returns null if the
+         * editor can't host an inline component.
          */
-        fun open(editor: Editor, startLine: Int, endLine: Int, onClose: () -> Unit): CommentDraft? {
+        fun open(editor: Editor, startLine: Int, endLine: Int, onClose: () -> Unit): CommentDraft? =
+            create(editor, startLine, endLine, editing = null, onClose)
+
+        /**
+         * Opens a draft to **edit** [comment] (design D1): the same box, seeded with the comment's
+         * body and opened over its current line range, resubmitting as an in-place update. Returns
+         * null if the editor can't host an inline component or the comment has no line anchor.
+         */
+        fun openForEdit(editor: Editor, comment: ReviewComment, onClose: () -> Unit): CommentDraft? {
+            val (start, end) = when (val subject = comment.subject) {
+                is Subject.Line -> subject.line to subject.line
+                is Subject.LineRange -> subject.startLine to subject.endLine
+                else -> return null
+            }
+            return create(editor, start, end, editing = comment, onClose)
+        }
+
+        private fun create(
+            editor: Editor,
+            startLine: Int,
+            endLine: Int,
+            editing: ReviewComment?,
+            onClose: () -> Unit,
+        ): CommentDraft? {
             if (editor !is EditorEx) return null
 
             val document = editor.document
@@ -401,7 +446,7 @@ class CommentDraft private constructor(
             val start = startLine.coerceIn(0, document.lineCount - 1)
             val end = endLine.coerceIn(start, document.lineCount - 1)
 
-            val draft = CommentDraft(editor, start, end, onClose)
+            val draft = CommentDraft(editor, start, end, editing, onClose)
             if (!draft.showBox()) {
                 draft.dispose()
                 return null
