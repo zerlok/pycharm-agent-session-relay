@@ -26,6 +26,12 @@ object InlineWidth {
     // that two-button row so the buttons never clip.
     private const val MIN_CAP_DP = 320
 
+    // Base (opening) width of both inline surfaces, in editor columns (comment-box-sizing feedback):
+    // the authoring box and the read-only card both open ~80 columns wide — a comfortable reading /
+    // typing width — instead of collapsing to their content (a short body, or the button row). Clamped
+    // down to the right-margin cap when that column is narrower.
+    private const val BASE_COLUMNS = 80
+
     /**
      * The pixel width of the editor's effective right margin — the vertical guide column resolved
      * per-file via [com.intellij.openapi.editor.EditorSettings.getRightMargin] for [Editor.getProject]
@@ -48,6 +54,18 @@ object InlineWidth {
      * column→pixel conversion [rightMarginPx] uses for the cap.
      */
     fun columnsPx(editor: Editor, columns: Int): Int = columns * EditorUtil.getPlainSpaceWidth(editor)
+
+    /**
+     * The base (opening) width both inline surfaces are pinned to: [BASE_COLUMNS] columns, clamped down
+     * to the right-margin cap ([rightMarginPx]) when that column is narrower. Callers force this as the
+     * surface's preferred width (keeping height content-driven), so a short comment card / empty box no
+     * longer shrinks to its content — it opens at a comfortable reading width, never past the cap.
+     */
+    fun baseWidthPx(editor: Editor): Int {
+        val base = columnsPx(editor, BASE_COLUMNS)
+        val cap = rightMarginPx(editor)
+        return if (cap != null) minOf(base, cap) else base
+    }
 
     /**
      * Wraps [content] so it renders at most [cap] px wide, pinned to the leading (left) edge, while its

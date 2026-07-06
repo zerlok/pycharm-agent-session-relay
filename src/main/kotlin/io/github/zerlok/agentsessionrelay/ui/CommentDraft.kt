@@ -408,11 +408,6 @@ class CommentDraft private constructor(
         // type without the old bulk.
         private const val BODY_ROWS = 2
 
-        // Base width of the authoring box, in editor columns (comment-box-sizing feedback): the box
-        // opens ~80 columns wide — a comfortable typing width — rather than collapsing to its button
-        // row. Clamped down to the right-margin cap when that column is narrower.
-        private const val BOX_COLUMNS = 80
-
         // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
         private const val GRAB_ZONE_DP = 4
 
@@ -480,12 +475,11 @@ class CommentDraft private constructor(
                 add(cancelButton)
                 add(addButton)
             }
-            // Base horizontal size (comment-box-sizing feedback): open the box at ~[BOX_COLUMNS] columns
-            // wide instead of shrinking to the button row, but never past the right-margin cap when that
-            // is narrower. The box still grows *taller* with the body (height stays super-driven); only
-            // the width is pinned here.
+            // Base horizontal size (comment-box-sizing feedback): open the box at the shared base width
+            // (~80 columns, clamped to the right-margin cap) instead of shrinking to the button row. The
+            // box still grows *taller* with the body (height stays super-driven); only width is pinned.
             val cap = InlineWidth.rightMarginPx(editor)
-            val baseWidth = InlineWidth.columnsPx(editor, BOX_COLUMNS).let { if (cap != null) minOf(it, cap) else it }
+            val baseWidth = InlineWidth.baseWidthPx(editor)
             val content = object : JPanel(BorderLayout(0, JBUI.scale(6))) {
                 override fun getPreferredSize(): Dimension {
                     val size = super.getPreferredSize()

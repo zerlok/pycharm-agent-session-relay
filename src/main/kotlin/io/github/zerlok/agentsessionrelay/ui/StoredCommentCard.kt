@@ -65,18 +65,24 @@ object StoredCommentCard {
             isVisible = false
         }
 
-        // The card: an opaque, bordered panel whose height is driven **only** by the body (see
-        // getPreferredSize), with the toolbar floated over the body's top-right corner (see doLayout).
-        // Because the toolbar never contributes to the preferred size, revealing it on hover leaves the
-        // inlay's height unchanged.
+        // The card opens at the shared base width (~80 columns, clamped to the right-margin cap) rather
+        // than shrinking to a short body's width (comment-box-sizing feedback). Only the width is pinned;
+        // height is still driven **only** by the body, measured at that fixed width so a multi-line
+        // comment reports the right height.
+        val baseWidth = InlineWidth.baseWidthPx(editor)
+
+        // The card: an opaque, bordered panel with the toolbar floated over the body's top-right corner
+        // (see doLayout). Because the toolbar never contributes to the preferred size, revealing it on
+        // hover leaves the inlay's height unchanged.
         val card = object : JPanel() {
             override fun getPreferredSize(): Dimension {
                 val insets = insets
-                val bodySize = bodyArea.preferredSize
-                return Dimension(
-                    bodySize.width + insets.left + insets.right,
-                    bodySize.height + insets.top + insets.bottom,
-                )
+                val contentWidth = (baseWidth - insets.left - insets.right).coerceAtLeast(1)
+                // Wrap the body to the card's fixed content width before reading its height, so a
+                // multi-line comment measures correctly regardless of layout timing. Guarded so the
+                // measurement setSize is a no-op once doLayout has already sized the body to this width.
+                if (bodyArea.width != contentWidth) bodyArea.setSize(contentWidth, Int.MAX_VALUE)
+                return Dimension(baseWidth, bodyArea.preferredSize.height + insets.top + insets.bottom)
             }
 
             override fun doLayout() {
