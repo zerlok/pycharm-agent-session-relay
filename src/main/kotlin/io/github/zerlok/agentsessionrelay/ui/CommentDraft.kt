@@ -339,7 +339,10 @@ class CommentDraft private constructor(
      * takes the keyboard.
      */
     private fun showBox(): Boolean {
-        val addButton = JButton(if (editing != null) "Update comment" else "Add review comment")
+        // Short labels (comment-box-sizing feedback): the primary button is a single word — "Comment"
+        // to add (GitHub's primary review-comment verb), "Save" when editing — so it doesn't blow up
+        // the button row's width.
+        val addButton = JButton(if (editing != null) "Save" else "Comment")
         val cancelButton = JButton("Cancel")
         val panel = buildPanel(editor, bodyField, addButton, cancelButton)
 
@@ -404,6 +407,11 @@ class CommentDraft private constructor(
         // floor (1 vs 2) is a visual taste-call to settle in a running IDE; 2 keeps a hint of room to
         // type without the old bulk.
         private const val BODY_ROWS = 2
+
+        // Base width of the authoring box, in editor columns (comment-box-sizing feedback): the box
+        // opens ~80 columns wide — a comfortable typing width — rather than collapsing to its button
+        // row. Clamped down to the right-margin cap when that column is narrower.
+        private const val BOX_COLUMNS = 80
 
         // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
         private const val GRAB_ZONE_DP = 4
@@ -472,7 +480,19 @@ class CommentDraft private constructor(
                 add(cancelButton)
                 add(addButton)
             }
-            val content = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
+            // Base horizontal size (comment-box-sizing feedback): open the box at ~[BOX_COLUMNS] columns
+            // wide instead of shrinking to the button row, but never past the right-margin cap when that
+            // is narrower. The box still grows *taller* with the body (height stays super-driven); only
+            // the width is pinned here.
+            val cap = InlineWidth.rightMarginPx(editor)
+            val baseWidth = InlineWidth.columnsPx(editor, BOX_COLUMNS).let { if (cap != null) minOf(it, cap) else it }
+            val content = object : JPanel(BorderLayout(0, JBUI.scale(6))) {
+                override fun getPreferredSize(): Dimension {
+                    val size = super.getPreferredSize()
+                    size.width = baseWidth
+                    return size
+                }
+            }.apply {
                 isOpaque = true
                 background = editor.colorsScheme.defaultBackground
                 border = JBUI.Borders.empty(8, 12)
@@ -496,7 +516,7 @@ class CommentDraft private constructor(
             // Cap the box at the editor's right margin (comment-box-sizing): a full-width inlay whose
             // visible content is pinned to the leftmost reading-width column, or unchanged full width
             // when no right margin is configured.
-            return InlineWidth.capWidth(content, InlineWidth.rightMarginPx(editor))
+            return InlineWidth.capWidth(content, cap)
         }
 
         private fun registerShortcuts(

@@ -1,6 +1,8 @@
 package io.github.zerlok.agentsessionrelay.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.ui.InplaceButton
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
@@ -9,7 +11,7 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.JButton
+import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 
@@ -50,10 +52,12 @@ object StoredCommentCard {
 
         // Compact hover toolbar. Kept opaque with the card's background so it reads cleanly where it
         // overlaps the body's top-right corner. Hidden at rest; toggled on pointer enter/exit below.
-        // The compact button margins are a visual taste-call to settle in a running IDE.
-        val editButton = compactButton("Edit", onEdit)
-        val deleteButton = compactButton("Delete", onDelete)
-        val toolbar = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
+        // Icon-only buttons (a pencil / trash), not text buttons — GitHub/GitLab-small, with the
+        // action named in a tooltip. `InplaceButton` is the platform's borderless icon button (as used
+        // in tab/close affordances): it draws its own hover highlight and stays icon-sized.
+        val editButton = iconButton("Edit", AllIcons.Actions.Edit, onEdit)
+        val deleteButton = iconButton("Delete", AllIcons.Actions.GC, onDelete)
+        val toolbar = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
             isOpaque = true
             background = editor.colorsScheme.defaultBackground
             add(editButton)
@@ -136,10 +140,8 @@ object StoredCommentCard {
         return InlineWidth.capWidth(card, InlineWidth.rightMarginPx(editor))
     }
 
-    private fun compactButton(text: String, onClick: () -> Unit): JButton = JButton(text).apply {
-        margin = JBUI.insets(2, 6)
-        addActionListener { onClick() }
-    }
+    private fun iconButton(tooltip: String, icon: Icon, onClick: () -> Unit): InplaceButton =
+        InplaceButton(tooltip, icon) { onClick() }
 
     private fun setToolbarVisible(card: JComponent, toolbar: JComponent, visible: Boolean) {
         if (toolbar.isVisible == visible) return

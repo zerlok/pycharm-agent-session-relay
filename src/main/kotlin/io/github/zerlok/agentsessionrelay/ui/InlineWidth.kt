@@ -21,9 +21,9 @@ import javax.swing.JPanel
 object InlineWidth {
 
     // Floor for the cap (unscaled dp). A very narrow right-margin column (e.g. an 8-column guide) must
-    // never shrink a box below its own chrome — the authoring box's "Cancel" + "Add review comment"
-    // row is the widest — so the cap is clamped up to this. The exact value is a visual taste-call:
-    // it is set comfortably wider than that two-button row so the buttons never clip.
+    // never shrink a box below its own chrome — the authoring box's "Cancel" + "Comment" button row —
+    // so the cap is clamped up to this. The exact value is a visual taste-call: comfortably wider than
+    // that two-button row so the buttons never clip.
     private const val MIN_CAP_DP = 320
 
     /**
@@ -38,9 +38,16 @@ object InlineWidth {
     fun rightMarginPx(editor: Editor): Int? {
         val columns = editor.settings.getRightMargin(editor.project)
         if (columns <= 0) return null
-        val spaceWidth = EditorUtil.getPlainSpaceWidth(editor)
-        return maxOf(columns * spaceWidth, JBUI.scale(MIN_CAP_DP))
+        return maxOf(columnsPx(editor, columns), JBUI.scale(MIN_CAP_DP))
     }
+
+    /**
+     * Pixel width of [columns] editor columns, via the editor's plain space width
+     * ([EditorUtil.getPlainSpaceWidth]). Used for the authoring box's *base* width — it opens ~80
+     * columns wide rather than shrinking to its button row (comment-box-sizing feedback) — the same
+     * column→pixel conversion [rightMarginPx] uses for the cap.
+     */
+    fun columnsPx(editor: Editor, columns: Int): Int = columns * EditorUtil.getPlainSpaceWidth(editor)
 
     /**
      * Wraps [content] so it renders at most [cap] px wide, pinned to the leading (left) edge, while its
