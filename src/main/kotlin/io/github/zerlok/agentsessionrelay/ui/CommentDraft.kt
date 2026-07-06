@@ -8,6 +8,7 @@ import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.editor.ex.EditorEx
@@ -18,12 +19,12 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileTypes.FileTypes
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import io.github.zerlok.agentsessionrelay.domain.Anchoring
 import io.github.zerlok.agentsessionrelay.domain.Subject
@@ -31,6 +32,7 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Point
@@ -82,11 +84,37 @@ class CommentDraft private constructor(
     // on an existing RangeHighlighter). This is the VIEW's live position marker (ARCHITECTURE §3.2).
     private var highlighter: RangeHighlighter = createHighlighter()
 
-    // The comment body component is persistent across hide/rebuild, so its text (including an empty
-    // body) is preserved for free; each rebuild only re-wraps it in a fresh panel/inlay.
-    private val textArea = JBTextArea(4, 0).apply {
-        lineWrap = true
-        wrapStyleWord = true
+    // The comment body lives in an inner IntelliJ editor (an EditorTextField), so while it is focused
+    // `CommonDataKeys.EDITOR` resolves to *this* editor and every editing keystroke — selection,
+    // word-nav, word-delete, backspace, clipboard, undo, and newline-on-Enter — acts on the body
+    // natively rather than leaking to the host editor (D1). The field (and its document) is persistent
+    // across hide/rebuild, so its text is preserved for free; each rebuild only re-wraps it in a fresh
+    // panel/inlay (D4). A subclassed preferred height keeps the box's current ~4-row footprint even
+    // when the body is empty.
+    private val bodyField: EditorTextField = object : EditorTextField(
+        EditorFactory.getInstance().createDocument(""),
+        editor.project,
+        FileTypes.PLAIN_TEXT,
+        /* isViewer = */ false,
+        /* oneLineMode = */ false,
+    ) {
+        override fun getPreferredSize(): Dimension {
+            val size = super.getPreferredSize()
+            val lineHeight = this.editor?.lineHeight ?: this@CommentDraft.editor.lineHeight
+            size.height = maxOf(size.height, lineHeight * BODY_ROWS)
+            return size
+        }
+    }.apply {
+        // Soft-wrap the plain-text body so long lines fold like the old word-wrapping text area
+        // instead of scrolling horizontally.
+        addSettingsProvider { innerEditor -> innerEditor.settings.isUseSoftWraps = true }
+        // A multiline EditorTextField draws no border of its own, so on its own it blends into the
+        // panel. Restore the framed "white input inside the gray box" look the old JBScrollPane gave:
+        // a 1px field-border line plus a little inner padding around the text.
+        border = JBUI.Borders.compound(
+            JBUI.Borders.customLine(JBColor.border(), 1),
+            JBUI.Borders.empty(3, 5),
+        )
     }
     private val resizeCursor: Cursor = Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
 
@@ -96,7 +124,7 @@ class CommentDraft private constructor(
     private var draggingEdge: Edge? = null
 
     private fun doSubmit() {
-        submit(textArea.text.orEmpty())
+        submit(bodyField.text)
         onClose()
     }
 
@@ -288,7 +316,7 @@ class CommentDraft private constructor(
     private fun showBox(): Boolean {
         val addButton = JButton("Add review comment")
         val cancelButton = JButton("Cancel")
-        val panel = buildPanel(editor, textArea, addButton, cancelButton)
+        val panel = buildPanel(editor, bodyField, addButton, cancelButton)
 
         val properties = EditorEmbeddedComponentManager.Properties(
             EditorEmbeddedComponentManager.ResizePolicy.none(),
@@ -307,9 +335,9 @@ class CommentDraft private constructor(
         addButton.addActionListener { doSubmit() }
         cancelButton.addActionListener { onClose() }
         // Register the box's key handling once — parented to the draft, so it survives box rebuilds
-        // (the text area is retained) and is cleaned up when the draft is disposed.
+        // (the field is retained) and is cleaned up when the draft is disposed.
         if (!shortcutsRegistered) {
-            registerShortcuts(textArea, this, submit = ::doSubmit, cancel = onClose)
+            registerShortcuts(bodyField, this, submit = ::doSubmit, cancel = onClose)
             shortcutsRegistered = true
         }
 
@@ -321,8 +349,8 @@ class CommentDraft private constructor(
         val focusManager = editor.project?.let { IdeFocusManager.getInstance(it) }
         ApplicationManager.getApplication().invokeLater {
             if (!newInlay.isValid) return@invokeLater
-            if (focusManager != null) focusManager.requestFocus(textArea, true)
-            else textArea.requestFocusInWindow()
+            if (focusManager != null) focusManager.requestFocus(bodyField, true)
+            else bodyField.requestFocusInWindow()
         }
         return true
     }
@@ -344,6 +372,9 @@ class CommentDraft private constructor(
     companion object {
         // Lines of surrounding code hashed into the anchor seed on each side of the range.
         private const val CONTEXT_LINES = 3
+
+        // Minimum visible rows for the body field, matching the old ~4-row JBTextArea footprint.
+        private const val BODY_ROWS = 4
 
         // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
         private const val GRAB_ZONE_DP = 4
@@ -380,7 +411,7 @@ class CommentDraft private constructor(
 
         private fun buildPanel(
             editor: EditorEx,
-            textArea: JBTextArea,
+            bodyField: EditorTextField,
             addButton: JButton,
             cancelButton: JButton,
         ): JPanel {
@@ -395,59 +426,56 @@ class CommentDraft private constructor(
                 border = JBUI.Borders.empty(8, 12)
                 // Show a normal arrow (not the editor's text I-beam) while hovering the box chrome.
                 cursor = Cursor.getDefaultCursor()
-                add(JBScrollPane(textArea), BorderLayout.CENTER)
+                // The EditorTextField wraps its own inner editor (with its own scrollbar/soft-wrap),
+                // so it is embedded directly rather than in a JBScrollPane.
+                add(bodyField, BorderLayout.CENTER)
                 add(buttons, BorderLayout.SOUTH)
                 // Without a mouse listener the panel's padding/background isn't an event target, so
                 // Swing retargets clicks and drags over it to the editor underneath — which then
                 // selects code. Listening here makes the panel swallow those events, and a click on
-                // the box chrome moves focus into the text area.
+                // the box chrome moves focus into the body field (D3), which forwards to its inner
+                // editor and returns editing to the box.
                 addMouseListener(object : MouseAdapter() {
                     override fun mousePressed(e: MouseEvent) {
-                        textArea.requestFocusInWindow()
+                        bodyField.requestFocusInWindow()
                     }
                 })
             }
         }
 
         private fun registerShortcuts(
-            textArea: JBTextArea,
+            bodyField: EditorTextField,
             parent: Disposable,
             submit: () -> Unit,
             cancel: () -> Unit,
         ) {
-            // The box lives inside the editor's content component, so Enter/Ctrl+Enter/Esc are first
-            // seen by the IDE key dispatcher, which resolves the surrounding editor from the focus
-            // owner's ancestors and runs the *editor's* action (Enter -> newline in the code) before
-            // Swing ever delivers the key. A plain Swing registerKeyboardAction loses that race.
-            // Actions registered on the focused component itself, however, are dispatched ahead of
-            // keymap/editor actions — so these win while the text area has focus.
+            // The inner editor now owns plain-text editing natively, including newline-on-Enter, so
+            // no Enter/Shift+Enter shim is needed. Ctrl+Enter/Cmd+Enter (submit) and Esc (cancel) are
+            // not plain-text edits, so they stay as component-scoped actions (D2). They are registered
+            // on the EditorTextField wrapper — which is retained across rebuilds and is the Swing
+            // ancestor of the focused inner-editor component — so IdeKeyEventDispatcher finds them
+            // ahead of any keymap/editor action while the box is focused. Registering on the wrapper
+            // (rather than the inner editor's contentComponent, which is torn down and recreated on
+            // every add/remove) keeps this a single once-per-draft registration that survives the
+            // edge-drag rebuild (resolves design.md's open question).
             fun anAction(run: () -> Unit) = object : AnAction() {
                 override fun actionPerformed(e: AnActionEvent) = run()
             }
             fun shortcuts(vararg keyStrokes: KeyStroke) =
                 CustomShortcutSet(*keyStrokes.map { KeyboardShortcut(it, null) }.toTypedArray())
-            // Plain/Shift Enter inserts a newline in the box (the editor would otherwise eat it).
-            anAction { textArea.replaceSelection("\n") }.registerCustomShortcutSet(
-                shortcuts(
-                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
-                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK),
-                ),
-                textArea,
-                parent,
-            )
             // Ctrl/Cmd+Enter submits (like a PR review box).
             anAction(submit).registerCustomShortcutSet(
                 shortcuts(
                     KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),
                     KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.META_DOWN_MASK),
                 ),
-                textArea,
+                bodyField,
                 parent,
             )
             // Esc cancels.
             anAction(cancel).registerCustomShortcutSet(
                 shortcuts(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0)),
-                textArea,
+                bodyField,
                 parent,
             )
         }
