@@ -1,9 +1,15 @@
 package io.github.zerlok.agentsessionrelay.ui
 
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
@@ -115,4 +121,65 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         controller.close()
         assertEquals(setOf(comment.id), overlay.cardCommentIds)
     }
+
+    // -- Document-save position sync (persist-live-comment-lines) --
+
+    /**
+     * Document save is the third position-sync point (ARCHITECTURE §3.2): a save flushes the saved
+     * file's comments' CURRENT live-marker ranges into the store via [ReviewBatchService.updatePosition],
+     * and the flush is scoped to the saved document — a sibling open file's comment keeps its stored
+     * lines because its own save never fired. Drives the real [EditorReviewOverlayService] and fires the
+     * platform's own save signal, [FileDocumentManagerListener.beforeDocumentSaving], through the
+     * application bus exactly as the write path does. (The light fixture's `temp://` files are already
+     * in-memory, so `FileDocumentManager.saveDocument` skips them and never emits the event — publishing
+     * the topic is the faithful stand-in for a real save.) A regression in the wiring (missing hook, or
+     * an over-broad flush that touches other files) fails here.
+     */
+    fun `test saving a document flushes only that document's shifted comments`() {
+        // Bring the service (and its FileDocumentManagerListener) to life BEFORE the editors below, so
+        // its EditorFactoryListener sees their editorCreated and builds an overlay for each.
+        EditorReviewOverlayService.getInstance(project)
+
+        val fm = FileDocumentManager.getInstance()
+        val fileA = fm.getFile(myFixture.editor.document)!!
+        val docA = myFixture.editor.document
+        val fileB = myFixture.addFileToProject("b.py", "b0\nb1\nb2\nb3\n").virtualFile
+        val docB = fm.getDocument(fileB)!!
+        val urlB = fileB.url
+
+        // The service only adopts MAIN_EDITOR editors; the fixture's own editors are UNTYPED in a light
+        // test, so create a real MAIN_EDITOR over each document (released on teardown). editorCreated
+        // then drives the service to build an overlay per document.
+        val factory = EditorFactory.getInstance()
+        val edA = factory.createEditor(docA, project, fileA, false, EditorKind.MAIN_EDITOR)
+        val edB = factory.createEditor(docB, project, fileB, false, EditorKind.MAIN_EDITOR)
+        Disposer.register(testRootDisposable, Disposable {
+            factory.releaseEditor(edA)
+            factory.releaseEditor(edB)
+        })
+
+        val commentA = service.addComment(Subject.LineRange(url, 1, 2), "in a")
+        val commentB = service.addComment(Subject.Line(urlB, 1), "in b")
+
+        // Insert two whole lines at the top of each document, shifting both live markers down by two.
+        WriteCommandAction.runWriteCommandAction(project) {
+            docA.insertString(0, "top0\ntop1\n")
+            docB.insertString(0, "top0\ntop1\n")
+        }
+
+        // No sync point has fired yet: the store still holds the authoring-time lines for both.
+        assertEquals(Subject.LineRange(url, 1, 2), subjectOf(commentA.id))
+        assertEquals(Subject.Line(urlB, 1), subjectOf(commentB.id))
+
+        // Save ONLY a.py: beforeDocumentSaving(docA) -> service.syncPositions(docA) -> updatePosition.
+        ApplicationManager.getApplication().messageBus
+            .syncPublisher(FileDocumentManagerListener.TOPIC)
+            .beforeDocumentSaving(docA)
+
+        // a.py's comment is flushed to its shifted range; b.py's stays put (its save never fired).
+        assertEquals(Subject.LineRange(url, 3, 4), subjectOf(commentA.id))
+        assertEquals(Subject.Line(urlB, 1), subjectOf(commentB.id))
+    }
+
+    private fun subjectOf(id: CommentId): Subject = service.comments().single { it.id == id }.subject
 }

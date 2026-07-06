@@ -45,7 +45,9 @@ class EditorReviewOverlay(
     private val editor: Editor,
 ) : ReviewBatchListener, CommentEditingListener, Disposable {
 
-    private val document: Document = editor.document
+    // Internal so [EditorReviewOverlayService] can scope a document-save flush to the overlays anchored
+    // to the saved document (identity compare); it is also this overlay's live position source.
+    internal val document: Document = editor.document
     private val fileUrl: String? = FileDocumentManager.getInstance().getFile(document)?.url
 
     // Gutter/highlight ride the document markup so they show across every split of this file

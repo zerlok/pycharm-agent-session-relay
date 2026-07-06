@@ -42,14 +42,17 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.KeyStroke
 import kotlin.math.abs
 
 /**
  * One in-progress review comment: a blue rectangle over the commented line range plus an
- * inline, full-width comment box rendered as a block inlay *below* the range (it pushes the
- * following code down rather than floating over it — GitHub/GitLab style).
+ * inline comment box rendered as a block inlay *below* the range (it pushes the following code down
+ * rather than floating over it — GitHub/GitLab style). The box inlay is full-width, but its visible
+ * content is capped at the editor's right margin via [InlineWidth] (comment-box-sizing) so it reads
+ * as a column rather than an edge-to-edge stripe.
  *
  * The commented range is **adjustable after the box opens** (`adjustable-comment-range`): the top
  * and bottom borders of the wash are draggable resize grips. Per D1, an edge-drag *hides* the box
@@ -96,8 +99,8 @@ class CommentDraft private constructor(
     // word-nav, word-delete, backspace, clipboard, undo, and newline-on-Enter — acts on the body
     // natively rather than leaking to the host editor (D1). The field (and its document) is persistent
     // across hide/rebuild, so its text is preserved for free; each rebuild only re-wraps it in a fresh
-    // panel/inlay (D4). A subclassed preferred height keeps the box's current ~4-row footprint even
-    // when the body is empty.
+    // panel/inlay (D4). A subclassed preferred height floors the box at a compact [BODY_ROWS]-row
+    // footprint (comment-box-sizing) and lets the field grow past that as the body is typed.
     private val bodyField: EditorTextField = object : EditorTextField(
         EditorFactory.getInstance().createDocument(""),
         editor.project,
@@ -395,8 +398,12 @@ class CommentDraft private constructor(
         // Lines of surrounding code hashed into the anchor seed on each side of the range.
         private const val CONTEXT_LINES = 3
 
-        // Minimum visible rows for the body field, matching the old ~4-row JBTextArea footprint.
-        private const val BODY_ROWS = 4
+        // Minimum visible rows for the body field (comment-box-sizing). Lowered from the old 4-row
+        // floor to a compact 2 so an empty/short box is short — leaving more code visible — and the
+        // field's own preferred-size growth takes over once the body wraps past two rows. The exact
+        // floor (1 vs 2) is a visual taste-call to settle in a running IDE; 2 keeps a hint of room to
+        // type without the old bulk.
+        private const val BODY_ROWS = 2
 
         // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
         private const val GRAB_ZONE_DP = 4
@@ -459,13 +466,13 @@ class CommentDraft private constructor(
             bodyField: EditorTextField,
             addButton: JButton,
             cancelButton: JButton,
-        ): JPanel {
+        ): JComponent {
             val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
                 isOpaque = false
                 add(cancelButton)
                 add(addButton)
             }
-            return JPanel(BorderLayout(0, JBUI.scale(6))).apply {
+            val content = JPanel(BorderLayout(0, JBUI.scale(6))).apply {
                 isOpaque = true
                 background = editor.colorsScheme.defaultBackground
                 border = JBUI.Borders.empty(8, 12)
@@ -486,6 +493,10 @@ class CommentDraft private constructor(
                     }
                 })
             }
+            // Cap the box at the editor's right margin (comment-box-sizing): a full-width inlay whose
+            // visible content is pinned to the leftmost reading-width column, or unchanged full width
+            // when no right margin is configured.
+            return InlineWidth.capWidth(content, InlineWidth.rightMarginPx(editor))
         }
 
         private fun registerShortcuts(
