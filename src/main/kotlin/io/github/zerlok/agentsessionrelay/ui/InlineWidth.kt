@@ -26,6 +26,11 @@ object InlineWidth {
     // that two-button row so the buttons never clip.
     private const val MIN_CAP_DP = 320
 
+    // Breathing gap (unscaled dp) trimmed off the editor's visible width when it caps a box, so the
+    // capped box's right border and the card's Edit/Delete icons don't sit flush against the viewport
+    // edge (or tuck under the scrollbar).
+    private const val VISIBLE_MARGIN_DP = 16
+
     // Base (opening) width of both inline surfaces, in editor columns (comment-box-sizing feedback):
     // the authoring box and the read-only card both open ~80 columns wide — a comfortable reading /
     // typing width — instead of collapsing to their content (a short body, or the button row). Clamped
@@ -33,18 +38,38 @@ object InlineWidth {
     private const val BASE_COLUMNS = 80
 
     /**
-     * The pixel width of the editor's effective right margin — the vertical guide column resolved
-     * per-file via [com.intellij.openapi.editor.EditorSettings.getRightMargin] for [Editor.getProject]
-     * — converted from columns to pixels through the editor's plain space width
-     * ([EditorUtil.getPlainSpaceWidth]). Returns `null` when the editor has no right margin configured
-     * (guide disabled / a non-positive column); callers then leave the surface full-width, exactly as
-     * before this change. A positive result is clamped up to [MIN_CAP_DP] so a narrow guide never
-     * shrinks a box below its own buttons.
+     * The pixel cap for the inline surfaces' visible width. It is the editor's effective right margin —
+     * the vertical guide column resolved per-file via
+     * [com.intellij.openapi.editor.EditorSettings.getRightMargin] for [Editor.getProject], converted
+     * from columns to pixels through the editor's plain space width ([EditorUtil.getPlainSpaceWidth]),
+     * clamped up to [MIN_CAP_DP] so a narrow guide never shrinks a box below its own buttons — but then
+     * **also clamped down to the editor's visible width** ([visibleWidthPx]). The right-margin column is
+     * frequently wider than the on-screen editor area (e.g. a 120-column guide in a narrow split), which
+     * would push a `fullWidth` block inlay — and the read-only card's right-anchored Edit/Delete toolbar
+     * with it — off the right edge where the user can't reach it. Clamping to the visible width keeps
+     * both surfaces on screen. When no right margin is configured the visible width alone is the cap (so
+     * the surface still never overflows); `null` only when neither is known (e.g. the editor isn't shown
+     * yet), which leaves the surface full-width exactly as before.
      */
     fun rightMarginPx(editor: Editor): Int? {
         val columns = editor.settings.getRightMargin(editor.project)
-        if (columns <= 0) return null
-        return maxOf(columnsPx(editor, columns), JBUI.scale(MIN_CAP_DP))
+        val marginCap = if (columns > 0) maxOf(columnsPx(editor, columns), JBUI.scale(MIN_CAP_DP)) else null
+        val visible = visibleWidthPx(editor)
+        return when {
+            marginCap != null && visible != null -> minOf(marginCap, visible)
+            else -> marginCap ?: visible
+        }
+    }
+
+    /**
+     * The editor's currently visible content width in pixels (the viewport, excluding gutter and
+     * scrollbar), less a small [VISIBLE_MARGIN_DP] breathing gap so a capped box's border/icons don't
+     * sit flush against the right edge. `null` when the editor isn't laid out yet (zero-area viewport),
+     * so callers fall back to the right-margin cap alone.
+     */
+    private fun visibleWidthPx(editor: Editor): Int? {
+        val width = editor.scrollingModel.visibleArea.width - JBUI.scale(VISIBLE_MARGIN_DP)
+        return if (width > 0) width else null
     }
 
     /**

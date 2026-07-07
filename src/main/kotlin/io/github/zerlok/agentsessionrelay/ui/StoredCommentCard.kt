@@ -74,32 +74,43 @@ object StoredCommentCard {
         // The card: an opaque, bordered panel with the toolbar floated over the body's top-right corner
         // (see doLayout). Because the toolbar never contributes to the preferred size, revealing it on
         // hover leaves the inlay's height unchanged.
+        // Content width the body is measured AND laid out at — a fixed function of baseWidth, never of
+        // the card's own (possibly stretched) width. Keeping both sides on this one value is what stops
+        // the layout churn: getPreferredSize's guarded setSize settles to a no-op instead of fighting a
+        // doLayout that sized the body to a different width every pass (the feedback that pegged the CPU).
+        val contentWidth = { insets: java.awt.Insets -> (baseWidth - insets.left - insets.right).coerceAtLeast(1) }
+
         val card = object : JPanel() {
+            // Pin the outer width to baseWidth so the capWidth BoxLayout wrapper can't stretch the card
+            // toward the (wider) right-margin cap. This both keeps the card no wider than its reading
+            // column — so the top-right toolbar stays on screen — and makes the card's actual width equal
+            // the width the body is measured at.
+            override fun getMaximumSize(): Dimension = Dimension(baseWidth, Int.MAX_VALUE)
+
             override fun getPreferredSize(): Dimension {
                 val insets = insets
-                val contentWidth = (baseWidth - insets.left - insets.right).coerceAtLeast(1)
-                // Wrap the body to the card's fixed content width before reading its height, so a
-                // multi-line comment measures correctly regardless of layout timing. Guarded so the
-                // measurement setSize is a no-op once doLayout has already sized the body to this width.
-                if (bodyArea.width != contentWidth) bodyArea.setSize(contentWidth, Int.MAX_VALUE)
+                val cw = contentWidth(insets)
+                // Wrap the body to that fixed content width before reading its height, so a multi-line
+                // comment measures correctly regardless of layout timing. Guarded so the setSize is a
+                // no-op once the body already has this width — the height never depends on the card's
+                // actual width, so it can't drive a re-layout loop.
+                if (bodyArea.width != cw) bodyArea.setSize(cw, Int.MAX_VALUE)
                 return Dimension(baseWidth, bodyArea.preferredSize.height + insets.top + insets.bottom)
             }
 
             override fun doLayout() {
                 val insets = insets
-                // Body fills the whole content area (inside the border padding).
-                bodyArea.setBounds(
-                    insets.left,
-                    insets.top,
-                    width - insets.left - insets.right,
-                    height - insets.top - insets.bottom,
-                )
-                // Toolbar floats in the top-right corner, over the body — a fixed overlay so its
-                // visibility never changes the card's height. Painted above the body because it is
-                // added at a lower z-index (index 0) than the body.
+                val cw = contentWidth(insets)
+                // Body is laid out at the SAME fixed content width getPreferredSize measures it at (not
+                // the card's actual width), so the two never diverge and the setSize guard stays satisfied.
+                bodyArea.setBounds(insets.left, insets.top, cw, height - insets.top - insets.bottom)
+                // Toolbar floats in the top-right corner of the (baseWidth-wide) reading column, so its
+                // Edit/Delete icons always sit inside the visible box rather than off past the margin.
+                // A fixed overlay: its visibility never changes the card's height. Painted above the body
+                // because it is added at a lower z-index (index 0) than the body.
                 if (toolbar.isVisible) {
                     val tb = toolbar.preferredSize
-                    toolbar.setBounds(width - insets.right - tb.width, insets.top, tb.width, tb.height)
+                    toolbar.setBounds(insets.left + cw - tb.width, insets.top, tb.width, tb.height)
                 }
             }
         }.apply {
