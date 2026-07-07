@@ -14,6 +14,10 @@ jobs:
   publish:
     name: Sign & publish to Marketplace
     runs-on: ubuntu-latest
+    # Protected environment: the signing + publish secrets are scoped here (not to CI/PRs), the job
+    # waits for a required reviewer's approval, and the environment is limited to v* tags. Configure
+    # these rules in repo Settings -> Environments -> marketplace.
+    environment: marketplace
     steps:
       - uses: actions/checkout@v4
 
