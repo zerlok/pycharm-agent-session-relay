@@ -1,0 +1,50 @@
+name: Release
+
+# Publish ONLY on a published GitHub Release. The release tag is the single source of truth for the
+# version; the release body becomes the Marketplace change-notes. No other event publishes.
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sign & publish to Marketplace
+    runs-on: ubuntu-latest
+    # Protected environment: the signing + publish secrets are scoped here (not to CI/PRs), the job
+    # waits for a required reviewer's approval, and the environment is limited to v* tags. Configure
+    # these rules in repo Settings -> Environments -> marketplace.
+    environment: marketplace
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Tag vX.Y.Z -> version X.Y.Z. This is the ONLY version value used for the release.
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Gate: never publish a red build.
+      - name: Check & verify
+        run: ./gradlew check verifyPlugin -PpluginVersion=${{ steps.version.outputs.version }}
+
+      # Builds, signs, and publishes the signed artifact to the Marketplace.
+      - name: Sign & publish
+        env:
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          CHANGE_NOTES: ${{ github.event.release.body }}
+        run: ./gradlew publishPlugin -PpluginVersion=${{ steps.version.outputs.version }}

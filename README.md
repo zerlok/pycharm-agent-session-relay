@@ -7,8 +7,11 @@ Relay is a **two-way channel** between you and an agent CLI (Claude Code, Codex,
 agent): the terminal carries **agent → you**, and a batched, line-anchored **review surface**
 carries **you → agent** — relayed into the specific session that made the changes.
 
-> **Status: pre-implementation.** The design is settled (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md));
-> the first code change scaffolds the IntelliJ Platform Plugin Template. There is no build yet.
+![Relay: hover a line, comment, batch, and submit as REVIEW.md](docs/images/demo.gif)
+
+> **Status: MVP implemented.** The full annotate → batch → export → deliver loop works (see
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design). Persistence across restarts, typed
+> terminal relay, and multi-session/worktree support remain deferred follow-ons.
 
 - **Plugin ID:** `io.github.zerlok.agentsessionrelay`
 - **Language:** Kotlin (IntelliJ Platform Plugin Template, Gradle)
@@ -29,11 +32,11 @@ exported to an agent CLI. The canonical flow:
 ```
  0. agent edits files  →  they land in your local working tree (synced in, if remote)
  1. Refresh & review  →  VFS refresh so the edits on disk show up
- 2. open a file, select lines, leave a comment  (repeat across files; whole-file and batch-level too)
- 3. see / edit / delete pending comments  (gutter icons + tool window)
+ 2. open a file, select lines, leave a comment  (repeat across files)
+ 3. see / edit / delete pending comments  (inline cards + tool window)
  4. open the tool window, preview the batch, add more
  5. (the agent sits idle, waiting for input)
- 6. press Submit  →  Relay writes REVIEW.md at the project root and tells agent to work with it
+ 6. press Submit  →  Relay writes REVIEW.md at the project root and notifies you to hand it to the agent
 ```
 
 The export uses Claude Code's native reference syntax (`@path/file.py#L10-15` + comment
@@ -69,4 +72,56 @@ openspec list              # active changes and their status
 /opsx:archive              # finalize a completed change
 ```
 
-Build, run, and test commands land here once the first change scaffolds the Gradle plugin template.
+### Build & run
+
+The plugin is built with the [IntelliJ Platform Gradle Plugin](https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html);
+the target IDE is **PyCharm Community 2024.2** (`platformType`/`platformVersion` in
+`gradle.properties`). Requires a JDK 21.
+
+```bash
+./gradlew buildPlugin   # produce build/distributions/agent-session-relay-<version>.zip
+./gradlew runIde        # launch a sandbox PyCharm with the plugin pre-installed (fastest dev loop)
+./gradlew verifyPlugin   # run the JetBrains plugin verifier
+```
+
+The first build downloads the target IDE (~1 GB) into the Gradle cache.
+
+### Try it in PyCharm (manual test)
+
+Walk the full loop: **hover the editor's left gutter → click the `+`** (or **right-click → Add
+review comment**) **→ type a comment (drag the highlighted range's edges to resize) →
+Ctrl/Cmd+Enter to add.** The comment stays in the editor as a read-only **inline card** under its
+lines — hover it to reveal its range and its **Edit / Delete** actions — and shows up in the **Relay
+Review** tool window (bottom), grouped by file (double-click to navigate). Add a few across files,
+then press **Submit** in the tool window: Relay writes `REVIEW.md` at the project root (`@path#L`
+references + your bodies), notifies you, and clears the batch. **Refresh & review** forces a VFS
+refresh so on-disk agent edits show up first. (In-memory only — the batch resets when the IDE
+restarts.)
+
+Two ways to test:
+
+1. **Sandbox (recommended).** `./gradlew runIde` launches a throwaway PyCharm with the plugin
+   already loaded. Open any file and hover a line.
+2. **Install into your real PyCharm.** Build the zip, then in PyCharm:
+   `Settings → Plugins → ⚙ (gear) → Install Plugin from Disk…` → pick
+   `build/distributions/agent-session-relay-<version>.zip` → restart. (Local builds use the
+   `0.0.0-SNAPSHOT` placeholder version.)
+
+### Releasing
+
+CI runs on every pull request and on `main` (`.github/workflows/ci.yml`: `check` + `verifyPlugin`).
+Publishing to the JetBrains Marketplace happens **only** when you publish a GitHub Release
+(`.github/workflows/release.yml`), governed by the
+[`release-pipeline`](openspec/specs/release-pipeline/spec.md) spec.
+
+The **git tag is the single source of truth for the published version** — `pluginVersion` in
+`gradle.properties` is only a dev placeholder. To cut a release:
+
+1. GitHub → **Releases → Draft a new release**.
+2. **Tag:** `vX.Y.Z` (e.g. `v0.1.0`) — the workflow publishes version `X.Y.Z`.
+3. Write the release notes — they become the Marketplace **change-notes**.
+4. **Publish release.** CI derives the version from the tag, runs the gate (`check` + `verifyPlugin`),
+   signs the plugin, and publishes the signed artifact to the Marketplace.
+
+Requires four repository secrets: `PUBLISH_TOKEN` (Marketplace) and `CERTIFICATE_CHAIN`,
+`PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` (signing).
