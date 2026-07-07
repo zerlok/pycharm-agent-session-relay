@@ -1,4 +1,4 @@
-# Agent Session Relay
+# <img src="docs/branding/relay-mark-256.png" alt="Relay logo" height="64" align="absmiddle"/>&nbsp; Agent Session Relay
 
 A JetBrains/PyCharm plugin — **Relay** for short — that lets you review the agent's changes
 in your IDE and relay batched, line-anchored comments straight into its running session.
@@ -7,15 +7,24 @@ Relay is a **two-way channel** between you and an agent CLI (Claude Code, Codex,
 agent): the terminal carries **agent → you**, and a batched, line-anchored **review surface**
 carries **you → agent** — relayed into the specific session that made the changes.
 
+[![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/32797?label=marketplace&logo=jetbrains&color=orange)](https://plugins.jetbrains.com/plugin/32797-agent-session-relay)
+[![Downloads](https://img.shields.io/jetbrains/plugin/d/32797?label=downloads)](https://plugins.jetbrains.com/plugin/32797-agent-session-relay)
+[![CI](https://github.com/zerlok/pycharm-agent-session-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/zerlok/pycharm-agent-session-relay/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 ![Relay: hover a line, comment, batch, and submit as REVIEW.md](docs/images/demo.gif)
 
 > **Status: MVP implemented.** The full annotate → batch → export → deliver loop works (see
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design). Persistence across restarts, typed
 > terminal relay, and multi-session/worktree support remain deferred follow-ons.
 
-- **Plugin ID:** `io.github.zerlok.agentsessionrelay`
-- **Language:** Kotlin (IntelliJ Platform Plugin Template, Gradle)
-- **License:** [MIT](LICENSE)
+## Install
+
+**[Agent Session Relay on the JetBrains Marketplace →](https://plugins.jetbrains.com/plugin/32797-agent-session-relay)**
+
+In your IDE: **Settings → Plugins → Marketplace**, search **"Agent Session Relay"**, then **Install**.
+Requires a **2024.2 or newer** IntelliJ-based IDE — built for PyCharm Community, runs in any
+IntelliJ-based IDE.
 
 ## The problem
 
@@ -55,6 +64,8 @@ collide with the agent's own edits under bidirectional sync.
 
 ## Development
 
+**Language:** Kotlin (IntelliJ Platform Plugin Template, Gradle)
+
 This is a **spec-driven** repository ([OpenSpec](https://github.com/Fission-AI/OpenSpec)):
 every feature starts as a change proposal under `openspec/changes/` before any code. Two
 sources of truth, read both before proposing or implementing:
@@ -63,14 +74,6 @@ sources of truth, read both before proposing or implementing:
   modes, user flow, per-capability behavior, scope phasing).
 - **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — technical design: *how the solution
   works and why* (domain model, anchor drift, multi-session mechanics, threading, SDK reuse).
-
-```bash
-openspec list              # active changes and their status
-/opsx:explore              # think through a problem (no implementation)
-/opsx:propose "<idea>"     # create a change proposal (proposal + specs + tasks)
-/opsx:apply                # implement an existing change's tasks
-/opsx:archive              # finalize a completed change
-```
 
 ### Build & run
 
@@ -85,43 +88,3 @@ the target IDE is **PyCharm Community 2024.2** (`platformType`/`platformVersion`
 ```
 
 The first build downloads the target IDE (~1 GB) into the Gradle cache.
-
-### Try it in PyCharm (manual test)
-
-Walk the full loop: **hover the editor's left gutter → click the `+`** (or **right-click → Add
-review comment**) **→ type a comment (drag the highlighted range's edges to resize) →
-Ctrl/Cmd+Enter to add.** The comment stays in the editor as a read-only **inline card** under its
-lines — hover it to reveal its range and its **Edit / Delete** actions — and shows up in the **Relay
-Review** tool window (bottom), grouped by file (double-click to navigate). Add a few across files,
-then press **Submit** in the tool window: Relay writes `REVIEW.md` at the project root (`@path#L`
-references + your bodies), notifies you, and clears the batch. **Refresh & review** forces a VFS
-refresh so on-disk agent edits show up first. (In-memory only — the batch resets when the IDE
-restarts.)
-
-Two ways to test:
-
-1. **Sandbox (recommended).** `./gradlew runIde` launches a throwaway PyCharm with the plugin
-   already loaded. Open any file and hover a line.
-2. **Install into your real PyCharm.** Build the zip, then in PyCharm:
-   `Settings → Plugins → ⚙ (gear) → Install Plugin from Disk…` → pick
-   `build/distributions/agent-session-relay-<version>.zip` → restart. (Local builds use the
-   `0.0.0-SNAPSHOT` placeholder version.)
-
-### Releasing
-
-CI runs on every pull request and on `main` (`.github/workflows/ci.yml`: `check` + `verifyPlugin`).
-Publishing to the JetBrains Marketplace happens **only** when you publish a GitHub Release
-(`.github/workflows/release.yml`), governed by the
-[`release-pipeline`](openspec/specs/release-pipeline/spec.md) spec.
-
-The **git tag is the single source of truth for the published version** — `pluginVersion` in
-`gradle.properties` is only a dev placeholder. To cut a release:
-
-1. GitHub → **Releases → Draft a new release**.
-2. **Tag:** `vX.Y.Z` (e.g. `v0.1.0`) — the workflow publishes version `X.Y.Z`.
-3. Write the release notes — they become the Marketplace **change-notes**.
-4. **Publish release.** CI derives the version from the tag, runs the gate (`check` + `verifyPlugin`),
-   signs the plugin, and publishes the signed artifact to the Marketplace.
-
-Requires four repository secrets: `PUBLISH_TOKEN` (Marketplace) and `CERTIFICATE_CHAIN`,
-`PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` (signing).

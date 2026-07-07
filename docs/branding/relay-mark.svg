@@ -1,0 +1,10 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Relay">
+  <!-- woven carets: teal = agent, violet = developer. Arms drawn in weave order (over/under). -->
+  <path d="M18 15 L35 32" stroke="#0FAE9A" stroke-width="7" stroke-linecap="round"/>
+  <path d="M46 15 L29 32" stroke="#6F57FF" stroke-width="7" stroke-linecap="round"/>
+  <path d="M46 49 L29 32" stroke="#6F57FF" stroke-width="7" stroke-linecap="round"/>
+  <path d="M18 49 L35 32" stroke="#0FAE9A" stroke-width="7" stroke-linecap="round"/>
+  <!-- corner AI spark -->
+  <path d="M51 5.5 L52.8 10.2 L57.5 12 L52.8 13.8 L51 18.5 L49.2 13.8 L44.5 12 L49.2 10.2 Z" fill="#0FAE9A"/>
+  <path d="M58 17 L58.9 19.1 L61 20 L58.9 20.9 L58 23 L57.1 20.9 L55 20 L57.1 19.1 Z" fill="#0FAE9A"/>
+</svg>
