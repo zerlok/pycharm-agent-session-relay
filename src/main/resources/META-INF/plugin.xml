@@ -26,4 +26,15 @@
         <toolWindow id="Relay Review" anchor="bottom" icon="AllIcons.General.Balloon"
                     factoryClass="io.github.zerlok.agentsessionrelay.ui.ReviewBatchToolWindowFactory"/>
     </extensions>
+
+    <actions>
+        <!-- Right-click "Add review comment" (design D2): opens the inline box over the selection, or
+             the caret line when there is no selection — the same range rule as the gutter "+". -->
+        <action id="io.github.zerlok.agentsessionrelay.AddReviewComment"
+                class="io.github.zerlok.agentsessionrelay.ui.AddReviewCommentAction"
+                text="Add Review Comment"
+                description="Open an inline review comment box for the selection or caret line">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

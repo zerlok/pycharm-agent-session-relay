@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
+import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.util.Disposer
@@ -120,6 +121,46 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
 
         controller.close()
         assertEquals(setOf(comment.id), overlay.cardCommentIds)
+    }
+
+    // -- No stored-comment gutter icon; card-hover range highlight (editor-review-visibility) --
+
+    /**
+     * D5: a stored comment's position marker carries no gutter icon — it is the invisible live position
+     * source only. Asserted directly against the document markup the overlay writes to, so a regression
+     * that re-attaches a [StoredCommentGutterIconRenderer] fails here.
+     */
+    fun `test a stored comment marker carries no gutter icon`() {
+        service.addComment(Subject.LineRange(url, 1, 2), "no icon")
+
+        val markup = DocumentMarkupModel.forDocument(myFixture.editor.document, project, true)
+        val storedIcons = markup.allHighlighters.count { it.gutterIconRenderer is StoredCommentGutterIconRenderer }
+        assertEquals(0, storedIcons)
+    }
+
+    /**
+     * D4: the transient card-hover range highlight is created on hover-in and disposed on hover-out, at
+     * most one at a time. Drives the overlay's card-hover seam directly (the Swing enter/exit path that
+     * calls it needs a display); a stale hover-out for a different comment must not drop a newer hover.
+     */
+    fun `test card hover shows and clears a single transient range highlight`() {
+        val a = service.addComment(Subject.LineRange(url, 1, 2), "a")
+        val b = service.addComment(Subject.Line(url, 3), "b")
+        assertNull(overlay.hoverHighlightCommentId)
+
+        overlay.onCardHover(a.id, true)
+        assertEquals(a.id, overlay.hoverHighlightCommentId)
+
+        // Moving to b's card replaces the highlight (still only one at a time).
+        overlay.onCardHover(b.id, true)
+        assertEquals(b.id, overlay.hoverHighlightCommentId)
+
+        // A late hover-out for a (already superseded) must not clear b's highlight.
+        overlay.onCardHover(a.id, false)
+        assertEquals(b.id, overlay.hoverHighlightCommentId)
+
+        overlay.onCardHover(b.id, false)
+        assertNull(overlay.hoverHighlightCommentId)
     }
 
     // -- Document-save position sync (persist-live-comment-lines) --

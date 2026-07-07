@@ -47,6 +47,17 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
             }
         }
 
+        // Confine the "+" to the left gutter (D1): show it only while the pointer is over a gutter
+        // sub-area and suppress it over the code (editing) area. "Gutter" is *not* EDITING_AREA — i.e.
+        // LINE_NUMBERS_AREA, LINE_MARKERS_AREA, ANNOTATIONS_AREA, FOLDING_OUTLINE_AREA. Spanning every
+        // non-editing gutter area (rather than the number column alone) keeps the icon clickable: the
+        // "+" renders in the marker column (LINE_MARKERS_AREA), so moving the pointer onto it to click
+        // must not leave the trigger zone and clear it first.
+        if (e.area == null || e.area == EditorMouseEventArea.EDITING_AREA) {
+            clear()
+            return
+        }
+
         val line = lineAt(editor, e)
         if (line == null) {
             clear()

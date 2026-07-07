@@ -190,6 +190,10 @@ class CommentDraft private constructor(
             HighlighterTargetArea.LINES_IN_RANGE,
         )
         highlighter.customRenderer = edgeRenderer
+        // Extend the range highlight into the line-number gutter (D3): the shared colored bar, painted
+        // in the reused wash color so the wash and the bar read as one highlight. Recreated with the
+        // wash on each resize (this whole method runs again), so the bar tracks the range live.
+        highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RANGE_BACKGROUND)
         return highlighter
     }
 
@@ -411,8 +415,12 @@ class CommentDraft private constructor(
         // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
         private const val GRAB_ZONE_DP = 4
 
-        /** Light blue wash over the commented lines, à la a pull-request review selection. */
-        private val RANGE_BACKGROUND = JBColor(Color(0xDD, 0xE7, 0xFF), Color(0x2A, 0x3A, 0x5A))
+        /**
+         * Light blue wash over the commented lines, à la a pull-request review selection. Internal so
+         * the shared [RangeHighlight] (the draft's gutter bar and the stored-comment hover highlight)
+         * reuses the one color, keeping the two surfaces visually identical (D3).
+         */
+        internal val RANGE_BACKGROUND = JBColor(Color(0xDD, 0xE7, 0xFF), Color(0x2A, 0x3A, 0x5A))
 
         /** Idle edge line — a slightly stronger blue than the wash, hinting the border is grabbable. */
         private val EDGE_IDLE = JBColor(Color(0x88, 0xA8, 0xE0), Color(0x3E, 0x54, 0x82))

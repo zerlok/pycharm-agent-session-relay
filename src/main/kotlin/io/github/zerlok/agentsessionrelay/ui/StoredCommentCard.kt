@@ -38,7 +38,13 @@ import javax.swing.JPanel
  */
 object StoredCommentCard {
 
-    fun build(editor: EditorEx, body: String, onEdit: () -> Unit, onDelete: () -> Unit): JComponent {
+    fun build(
+        editor: EditorEx,
+        body: String,
+        onEdit: () -> Unit,
+        onDelete: () -> Unit,
+        onHover: (Boolean) -> Unit,
+    ): JComponent {
         // Read-only, soft-wrapping body text — no editor, no keystroke capture; the card is inert.
         val bodyArea = JBTextArea(body).apply {
             isEditable = false
@@ -137,10 +143,21 @@ object StoredCommentCard {
         // Swing does not retarget clicks over the card to the editor beneath it (same pattern as
         // CommentDraft).
         val hover = object : MouseAdapter() {
-            override fun mouseEntered(e: MouseEvent) = setToolbarVisible(card, toolbar, true)
+            override fun mouseEntered(e: MouseEvent) {
+                setToolbarVisible(card, toolbar, true)
+                // Reveal this comment's range in the editor while its card is hovered (design D4). The
+                // overlay owns the single transient highlight; the card only reports enter/exit.
+                onHover(true)
+            }
 
             override fun mouseExited(e: MouseEvent) {
-                if (card.getMousePosition(true) == null) setToolbarVisible(card, toolbar, false)
+                // Same proven exit test as the toolbar: only a *true* leave (pointer no longer over the
+                // card or any descendant) hides the toolbar and clears the range highlight, so crossing
+                // into a child button never flickers either off.
+                if (card.getMousePosition(true) == null) {
+                    setToolbarVisible(card, toolbar, false)
+                    onHover(false)
+                }
             }
 
             // Swallow presses so a click on the card's padding/background stays on the card instead of

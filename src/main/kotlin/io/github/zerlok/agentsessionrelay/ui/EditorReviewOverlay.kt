@@ -23,15 +23,16 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 /**
  * The per-editor view of the review batch (ARCHITECTURE §3.2, §3.3). It owns one live
  * [RangeHighlighter] per stored comment whose subject points at *this* editor's file, keyed by
- * [CommentId], carrying the persistent stored-comment gutter marker. The domain record stays inert;
- * the highlighter is the derived, per-editor projection — and, while the file is open, the live
- * source of truth for the comment's position (queried via [currentPositions]).
+ * [CommentId]. The marker carries **no gutter icon** (design D5): it is the invisible live position
+ * source — the derived, per-editor projection of the inert domain record and, while the file is open,
+ * the source of truth for the comment's position (queried via [currentPositions]) and for the
+ * card-hover range highlight below. The stored-comment resting indicator is the always-visible card.
  *
  * The store is the single source of truth: the overlay never keeps its own comment list. It seeds
  * from [ReviewBatchService.comments] on creation and, on every [ReviewBatchListener] event,
  * reconciles its markers **by diff** (retained-mode: add new, dispose removed, leave the rest).
  *
- * Alongside the gutter markers it owns a parallel per-comment map of **read-only card inlays**
+ * Alongside the position markers it owns a parallel per-comment map of **read-only card inlays**
  * (design D2): a full-width block inlay under each stored comment's range showing its body plus Edit
  * and Delete. Cards reconcile off the same store events (rebuilding on `commentUpdated`, since a
  * card's body/position are baked in at creation) and additionally off [CommentEditingListener] — the
@@ -61,6 +62,13 @@ class EditorReviewOverlay(
     // changes; [cardModels] records the comment each card was built from to detect that.
     private val cards = HashMap<CommentId, Inlay<*>>()
     private val cardModels = HashMap<CommentId, ReviewComment>()
+
+    // The single transient "range + gutter" highlight shown for the comment whose card is currently
+    // hovered (design D4). View-only and never touching the store (retained-mode, store-is-truth): at
+    // most one exists at a time, built on hover-in from the comment's live marker range and disposed on
+    // hover-out (and with the overlay). At rest there is no stored range wash.
+    private var hoverHighlight: RangeHighlight? = null
+    private var hoverHighlightId: CommentId? = null
 
     init {
         val connection = project.messageBus.connect(this)
@@ -159,8 +167,10 @@ class EditorReviewOverlay(
             null,
             HighlighterTargetArea.LINES_IN_RANGE,
         )
-        highlighter.gutterIconRenderer =
-            StoredCommentGutterIconRenderer(project, comment.id, tooltipFor(comment))
+        // No gutter icon (design D5): the marker is now purely the invisible live position source (and
+        // the source for the card-hover range highlight). The stored-comment resting indicator is the
+        // always-visible card; the range is revealed on card hover. `StoredCommentGutterIconRenderer`
+        // is kept unwired in the tree for the deferred hide-comments change to re-attach here.
         markers[comment.id] = highlighter
     }
 
@@ -193,6 +203,8 @@ class EditorReviewOverlay(
                 CommentDraftController.getInstance(project).openForEdit(editor, target)
             },
             onDelete = { ReviewBatchService.getInstance(project).removeComment(comment.id) },
+            // Reveal / clear this comment's range as the pointer enters / leaves the card (design D4).
+            onHover = { hovered -> onCardHover(comment.id, hovered) },
         )
 
         val properties = EditorEmbeddedComponentManager.Properties(
@@ -213,12 +225,42 @@ class EditorReviewOverlay(
     private fun removeCard(id: CommentId) {
         cards.remove(id)?.let { if (it.isValid) Disposer.dispose(it) }
         cardModels.remove(id)
+        // A card being removed/rebuilt while hovered would otherwise leave its highlight orphaned.
+        clearHoverHighlightFor(id)
     }
 
-    private fun tooltipFor(comment: ReviewComment): String {
-        val snippet = comment.body.trim().take(TOOLTIP_CHARS)
-        return if (snippet.isBlank()) "Relay review comment" else "Relay: $snippet"
+    /**
+     * Card hover-in / hover-out for [id] (design D4), the seam [StoredCommentCard]'s enter/exit calls
+     * back into (also a test seam). On hover-in, show the shared "range + gutter" highlight over the
+     * comment's **live** marker range — the same source as [currentPositions] — replacing any current
+     * one; on hover-out, dispose it. View-only: it never touches the store.
+     */
+    internal fun onCardHover(id: CommentId, hovered: Boolean) {
+        if (hovered) showHoverHighlight(id) else clearHoverHighlightFor(id)
     }
+
+    private fun showHoverHighlight(id: CommentId) {
+        val marker = markers[id]?.takeIf { it.isValid } ?: return
+        clearHoverHighlight()
+        val startLine = document.getLineNumber(marker.startOffset)
+        val endLine = document.getLineNumber(marker.endOffset)
+        hoverHighlight = RangeHighlight.create(editor, startLine, endLine, CommentDraft.RANGE_BACKGROUND)
+        hoverHighlightId = id
+    }
+
+    /** Clears the transient highlight only if it belongs to [id], so a stale exit can't drop a newer hover. */
+    private fun clearHoverHighlightFor(id: CommentId) {
+        if (hoverHighlightId == id) clearHoverHighlight()
+    }
+
+    private fun clearHoverHighlight() {
+        hoverHighlight?.dispose()
+        hoverHighlight = null
+        hoverHighlightId = null
+    }
+
+    /** The comment whose range is currently highlighted on card hover, if any — a test seam for D4. */
+    internal val hoverHighlightCommentId: CommentId? get() = hoverHighlightId
 
     /** The comments that currently have a read-only card in this editor — a test seam for reconcile. */
     internal val cardCommentIds: Set<CommentId> get() = cards.keys.toSet()
@@ -230,11 +272,10 @@ class EditorReviewOverlay(
         for (inlay in cards.values) if (inlay.isValid) Disposer.dispose(inlay)
         cards.clear()
         cardModels.clear()
+        clearHoverHighlight()
     }
 
     companion object {
-        private const val TOOLTIP_CHARS = 120
-
         private fun fileUrlOf(subject: Subject): String? = when (subject) {
             is Subject.Line -> subject.fileUrl
             is Subject.LineRange -> subject.fileUrl
