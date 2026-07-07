@@ -104,4 +104,24 @@ Two ways to test:
    already loaded. Open any file and hover a line.
 2. **Install into your real PyCharm.** Build the zip, then in PyCharm:
    `Settings → Plugins → ⚙ (gear) → Install Plugin from Disk…` → pick
-   `build/distributions/agent-session-relay-0.1.0.zip` → restart.
+   `build/distributions/agent-session-relay-<version>.zip` → restart. (Local builds use the
+   `0.0.0-SNAPSHOT` placeholder version.)
+
+### Releasing
+
+CI runs on every pull request and on `main` (`.github/workflows/ci.yml`: `check` + `verifyPlugin`).
+Publishing to the JetBrains Marketplace happens **only** when you publish a GitHub Release
+(`.github/workflows/release.yml`), governed by the
+[`release-pipeline`](openspec/specs/release-pipeline/spec.md) spec.
+
+The **git tag is the single source of truth for the published version** — `pluginVersion` in
+`gradle.properties` is only a dev placeholder. To cut a release:
+
+1. GitHub → **Releases → Draft a new release**.
+2. **Tag:** `vX.Y.Z` (e.g. `v0.1.0`) — the workflow publishes version `X.Y.Z`.
+3. Write the release notes — they become the Marketplace **change-notes**.
+4. **Publish release.** CI derives the version from the tag, runs the gate (`check` + `verifyPlugin`),
+   signs the plugin, and publishes the signed artifact to the Marketplace.
+
+Requires four repository secrets: `PUBLISH_TOKEN` (Marketplace) and `CERTIFICATE_CHAIN`,
+`PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` (signing).

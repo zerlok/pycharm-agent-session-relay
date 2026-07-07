@@ -41,11 +41,27 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
+        // Marketplace change-notes for a release are the GitHub Release body, passed by release.yml
+        // as CHANGE_NOTES. Empty for local/dev builds, which is fine.
+        changeNotes = providers.environmentVariable("CHANGE_NOTES").orElse("")
+
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild")
             // Leave untilBuild unset so the plugin keeps working on newer IDE builds.
             untilBuild = provider { null }
         }
+    }
+
+    // Signing material and the Marketplace token are supplied by release.yml from GitHub secrets.
+    // Only `signPlugin`/`publishPlugin` (release-only tasks) read these, so local builds need none.
+    signing {
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
     }
 
     pluginVerification {
