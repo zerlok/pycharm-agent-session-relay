@@ -7,6 +7,8 @@ Relay is a **two-way channel** between you and an agent CLI (Claude Code, Codex,
 agent): the terminal carries **agent → you**, and a batched, line-anchored **review surface**
 carries **you → agent** — relayed into the specific session that made the changes.
 
+![Relay: hover a line, comment, batch, and submit as REVIEW.md](docs/images/demo.gif)
+
 > **Status: MVP implemented.** The full annotate → batch → export → deliver loop works (see
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design). Persistence across restarts, typed
 > terminal relay, and multi-session/worktree support remain deferred follow-ons.
@@ -30,11 +32,11 @@ exported to an agent CLI. The canonical flow:
 ```
  0. agent edits files  →  they land in your local working tree (synced in, if remote)
  1. Refresh & review  →  VFS refresh so the edits on disk show up
- 2. open a file, select lines, leave a comment  (repeat across files; whole-file and batch-level too)
- 3. see / edit / delete pending comments  (gutter icons + tool window)
+ 2. open a file, select lines, leave a comment  (repeat across files)
+ 3. see / edit / delete pending comments  (inline cards + tool window)
  4. open the tool window, preview the batch, add more
  5. (the agent sits idle, waiting for input)
- 6. press Submit  →  Relay writes REVIEW.md at the project root and tells agent to work with it
+ 6. press Submit  →  Relay writes REVIEW.md at the project root and notifies you to hand it to the agent
 ```
 
 The export uses Claude Code's native reference syntax (`@path/file.py#L10-15` + comment
@@ -86,13 +88,15 @@ The first build downloads the target IDE (~1 GB) into the Gradle cache.
 
 ### Try it in PyCharm (manual test)
 
-Walk the full loop: **hover a line → click the `+` → type a comment (drag the highlighted range's
-edges to resize) → Ctrl/Cmd+Enter to add.** The comment lands in the batch: a gutter marker appears
-on its range and it shows up in the **Relay Review** tool window (bottom), grouped by file —
-double-click to navigate, right-click a gutter marker to delete. Add a few across files, then press
-**Submit** in the tool window: Relay writes `REVIEW.md` at the project root (`@path#L` references +
-your bodies), notifies you, and clears the batch. **Refresh & review** forces a VFS refresh so
-on-disk agent edits show up first. (In-memory only — the batch resets when the IDE restarts.)
+Walk the full loop: **hover the editor's left gutter → click the `+`** (or **right-click → Add
+review comment**) **→ type a comment (drag the highlighted range's edges to resize) →
+Ctrl/Cmd+Enter to add.** The comment stays in the editor as a read-only **inline card** under its
+lines — hover it to reveal its range and its **Edit / Delete** actions — and shows up in the **Relay
+Review** tool window (bottom), grouped by file (double-click to navigate). Add a few across files,
+then press **Submit** in the tool window: Relay writes `REVIEW.md` at the project root (`@path#L`
+references + your bodies), notifies you, and clears the batch. **Refresh & review** forces a VFS
+refresh so on-disk agent edits show up first. (In-memory only — the batch resets when the IDE
+restarts.)
 
 Two ways to test:
 

@@ -5,14 +5,31 @@
 
     <description><![CDATA[
         Review an agent's changes in your IDE and relay batched, line-anchored comments
-        back into its running session.<br/>
+        back into its running session — instead of retyping feedback into the terminal.<br/>
         <br/>
-        <b>MVP:</b> hover a line to reveal a <b>+</b> gutter icon; click it to open an inline
-        comment box (GitHub/GitLab style) whose range you can drag to resize. Added comments
-        collect in a project batch — shown as gutter markers and in the <i>Relay Review</i> tool
-        window (grouped by file, navigate, delete). <i>Submit</i> writes a <code>REVIEW.md</code>
-        at the project root using Claude Code's <code>@path#L</code> reference syntax, ready to hand
-        to an idle agent session.
+        <b>How it works</b>
+        <ul>
+            <li>Hover the editor's <b>left gutter</b> to reveal a <b>+</b> icon — or right-click and
+                choose <i>Add review comment</i> — to open an inline comment box (GitHub/GitLab
+                style) over the selected lines, or the caret line. Drag the highlighted range's top
+                and bottom edges to resize it.</li>
+            <li>Press <b>Ctrl/Cmd+Enter</b> to add the comment. It stays in the editor as a
+                read-only inline card under its lines — hover the card to reveal its range and its
+                <i>Edit</i> / <i>Delete</i> actions — and is listed in the <i>Relay Review</i> tool
+                window, grouped by file (double-click to jump to it).</li>
+            <li>Press <i>Submit</i> to write a <code>REVIEW.md</code> at the project root using
+                Claude Code's <code>@path#L</code> reference syntax, then hand it to your idle agent
+                session.</li>
+            <li>Use <i>Refresh &amp; review</i> to reload files an agent changed on disk before you
+                review them.</li>
+        </ul>
+        Works in any open file, regardless of its version-control status.<br/>
+        <br/>
+        <b>Links:</b>
+        <ul>
+            <li><a href="https://github.com/zerlok/pycharm-agent-session-relay">GitHub</a></li>
+            <li><a href="https://github.com/zerlok/pycharm-agent-session-relay/issues">Issues</a></li>
+        </ul>
     ]]></description>
 
     <!-- Works in any IntelliJ-based IDE, including PyCharm. -->
