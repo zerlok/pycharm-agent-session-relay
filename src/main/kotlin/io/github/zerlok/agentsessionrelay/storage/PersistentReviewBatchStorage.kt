@@ -10,25 +10,21 @@ import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 
 /**
- * The durable backing for the pending review batch (design D1–D4). A [ReviewBatchStorage] whose
- * records also live on disk via [PersistentStateComponent]. [State] carries the storage config: the
- * platform reads it from the `@State` annotation (a bare `@Storage` on the class is inert — it is only
- * valid nested in `@State.storages`), persisting to `workspace.xml` ([StoragePathMacros.WORKSPACE_FILE])
- * — per-user, not committed to VCS. Registered by annotation as a project [Service]; the logic layer
- * obtains it with `project.service<PersistentReviewBatchStorage>()` (no `plugin.xml` `<service>` entry),
- * because `loadState`/`getState` are only driven when the platform owns the instance lifecycle — it
- * cannot be `new`-ed like [InMemoryReviewBatchStorage].
+ * The durable backing for the pending review batch (design D1–D4): a [ReviewBatchStorage] whose
+ * records also persist via [PersistentStateComponent].
  *
- * `getStateRequiresEdt = true` because the batch is mutated only on the EDT (ARCHITECTURE §5.3); it
- * pins the platform's otherwise-background [getState] to the EDT too, so a save can never iterate the
- * un-synchronized [LinkedHashMap] concurrently with a mutation.
+ * Storage config is read only from `@State`: a bare `@Storage` on the class is inert (valid only
+ * nested in `@State.storages`), so without `@State` nothing would ever be written. It lives in
+ * `workspace.xml` because the batch is a private, per-user draft, not a VCS artifact.
  *
- * The live batch is a [LinkedHashMap] keyed by [CommentId] to preserve insertion order for [all]
- * (mirrors [InMemoryReviewBatchStorage]). [getState] snapshots it to flat [PersistedComment] DTOs on
- * the platform's save cadence; [loadState] inflates raw records only — no `VirtualFile` resolution, no
- * document access, no re-anchoring on the load path (design D3, out of scope). A runtime reload of
- * `workspace.xml` (external edit) re-runs [loadState] without a listener event, so already-open views
- * refresh only on the next store change — acceptable: the target is restore-on-restart, not live sync.
+ * The logic layer obtains this as a service, never `new`-ing it: `loadState`/`getState` fire only when
+ * the platform owns the instance ([InMemoryReviewBatchStorage] remains the constructible test backing).
+ *
+ * `getStateRequiresEdt = true` pins the otherwise-background [getState] to the EDT, where all batch
+ * mutations already run (ARCHITECTURE §5.3), so a save can never iterate [comments] mid-mutation.
+ *
+ * A runtime reload of `workspace.xml` (external edit) re-runs [loadState] with no listener event, so
+ * open views refresh only on the next store change — accepted: the target is restore-on-restart.
  */
 @Service(Service.Level.PROJECT)
 @State(
@@ -40,12 +36,12 @@ class PersistentReviewBatchStorage :
     ReviewBatchStorage,
     PersistentStateComponent<PersistentReviewBatchStorage.State> {
 
-    /** The serialized state holder: an insertion-ordered list of flat DTOs (mirrors `all()`). */
     class State {
         @XCollection(style = XCollection.Style.v2)
         var comments: MutableList<PersistedComment> = mutableListOf()
     }
 
+    // LinkedHashMap: all() must return comments in authored (insertion) order.
     private val comments = LinkedHashMap<CommentId, ReviewComment>()
 
     // -- PersistentStateComponent --
@@ -55,8 +51,8 @@ class PersistentReviewBatchStorage :
     }
 
     override fun loadState(state: State) {
-        // Inflate raw records only — no file resolution or re-anchoring (design D3). Degenerate DTOs
-        // map through their defaults / safe fallbacks (see PersistedComment.toDomain), never throwing.
+        // No file resolution or re-anchoring here: loadState runs pre-index (design D3), and degenerate
+        // DTOs fall back safely in toDomain rather than aborting the whole restore.
         comments.clear()
         for (dto in state.comments) {
             val comment = dto.toDomain()

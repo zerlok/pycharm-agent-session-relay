@@ -7,15 +7,13 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 
 /**
- * The on-disk form of a [ReviewComment] — a flat, `xmlb`-serializable bean living in the storage
- * layer (design D2). `xmlb` needs a no-arg constructor and mutable `var` bean properties and has no
- * story for a Kotlin sealed hierarchy, immutable `data class`, or `value class`, so the domain types
- * (`sealed Subject`, `ReviewComment`, `value class CommentId`) stay inert (ARCHITECTURE §3.1) and this
- * DTO absorbs every serialization concession. The [PersistedComment.toDomain] / [ReviewComment.toPersisted]
- * mapper is the storage-boundary translation, switching on [subjectKind] to rebuild each [Subject] variant.
+ * The on-disk form of a [ReviewComment]: a flat, `xmlb`-serializable bean (design D2). `xmlb` needs a
+ * no-arg constructor and mutable `var` properties and cannot serialize a Kotlin sealed hierarchy,
+ * `data class`, or `value class` — so the domain types stay inert (ARCHITECTURE §3.1) and this DTO
+ * absorbs every serialization concession.
  *
- * Line numbers are the domain's 0-based convention on disk too; the 1-based conversion stays a
- * user-facing/export concern (ARCHITECTURE §3.2).
+ * Line numbers keep the domain's 0-based convention on disk; the 1-based form is a display/export
+ * concern only (ARCHITECTURE §3.2).
  */
 class PersistedComment {
     var id: String = ""
@@ -49,10 +47,7 @@ private object SubjectKind {
     const val PROJECT = "PROJECT"
 }
 
-/**
- * Domain → DTO. Flattens the [Subject] variant into [PersistedComment.subjectKind] plus the fields
- * that variant carries; every other field is losslessly copied.
- */
+/** Domain → DTO: flattens the [Subject] variant into [PersistedComment.subjectKind] + its fields. */
 fun ReviewComment.toPersisted(): PersistedComment = PersistedComment().also { dto ->
     dto.id = id.value
     dto.body = body
@@ -91,12 +86,9 @@ fun ReviewComment.toPersisted(): PersistedComment = PersistedComment().also { dt
 }
 
 /**
- * DTO → domain. Rebuilds the exact [Subject] variant by switching on [PersistedComment.subjectKind].
- *
- * Degenerate input is tolerated (design "Risks", tasks 1.3): missing fields already carry their bean
- * defaults, and an unrecognized [subjectKind] falls back to [Subject.Project] (a safe, file-less
- * subject) rather than throwing — so a schema-drifted or partial record loads instead of aborting the
- * whole batch restore. An unrecognized [status] falls back to [CommentStatus.ACTIVE].
+ * DTO → domain, tolerating degenerate input (design "Risks", task 1.3): missing fields carry their
+ * bean defaults and an unrecognized [subjectKind] or [status] falls back safely rather than throwing,
+ * so a schema-drifted or partial record still loads instead of aborting the whole restore.
  */
 fun PersistedComment.toDomain(): ReviewComment = ReviewComment(
     id = CommentId(id),
@@ -113,6 +105,6 @@ private fun PersistedComment.toSubject(): Subject = when (subjectKind) {
     SubjectKind.FILE -> Subject.File(fileUrl.orEmpty())
     SubjectKind.FILES -> Subject.Files(fileUrls.toList())
     SubjectKind.PROJECT -> Subject.Project
-    // Unknown/blank kind (old or corrupt state): safe file-less fallback rather than throwing on load.
+    // Unknown/blank kind (old or corrupt state) → file-less fallback, never a throw.
     else -> Subject.Project
 }

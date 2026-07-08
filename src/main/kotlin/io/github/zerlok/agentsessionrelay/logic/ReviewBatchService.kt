@@ -22,9 +22,8 @@ import java.util.UUID
 @Service(Service.Level.PROJECT)
 class ReviewBatchService(private val project: Project) {
 
-    // The one place the concrete backing is named; swapping it is the whole persistence change. The
-    // durable store is a project @Service so the platform drives its loadState/getState — hence
-    // project.service<…>(), not a direct constructor (design D1). InMemoryReviewBatchStorage stays for tests.
+    // The one place the concrete backing is named — the whole persistence swap. Obtained as a service,
+    // not constructed: see PersistentReviewBatchStorage for why the platform must own its lifecycle.
     private val storage: ReviewBatchStorage = project.service<PersistentReviewBatchStorage>()
 
     // -- Queries --
