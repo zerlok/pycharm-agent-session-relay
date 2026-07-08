@@ -6,7 +6,7 @@ import com.intellij.openapi.project.Project
 import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
-import io.github.zerlok.agentsessionrelay.storage.InMemoryReviewBatchStorage
+import io.github.zerlok.agentsessionrelay.storage.PersistentReviewBatchStorage
 import io.github.zerlok.agentsessionrelay.storage.ReviewBatchStorage
 import java.util.UUID
 
@@ -22,8 +22,10 @@ import java.util.UUID
 @Service(Service.Level.PROJECT)
 class ReviewBatchService(private val project: Project) {
 
-    // The one place the concrete backing is named; swapping it is the whole persistence change.
-    private val storage: ReviewBatchStorage = InMemoryReviewBatchStorage()
+    // The one place the concrete backing is named; swapping it is the whole persistence change. The
+    // durable store is a project @Service so the platform drives its loadState/getState — hence
+    // project.service<…>(), not a direct constructor (design D1). InMemoryReviewBatchStorage stays for tests.
+    private val storage: ReviewBatchStorage = project.service<PersistentReviewBatchStorage>()
 
     // -- Queries --
 
