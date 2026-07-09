@@ -12,13 +12,16 @@ sessions of other projects MUST NOT notify in this project.
 - **THEN** an IDE notification appears naming that session
 
 #### Scenario: Foreign project stays silent
-- **WHEN** a session whose `cwd` is outside the open project emits `turn.completed`
+- **WHEN** a session whose registered `local_path` is outside the open project emits
+  `turn.completed`
 - **THEN** no notification appears in this project
 
 ### Requirement: Notification on needs-input
 The plugin SHALL show an IDE notification when a session of the open project emits
 `needs.input`, stating the kind (permission / idle / question). Needs-input notifications
 SHALL be visually distinct from turn-completion notifications (higher urgency).
+Dismissing or ignoring a notification is local-only: the user responds in the agent's own
+terminal, and the plugin MUST NOT send anything back to the agent.
 
 #### Scenario: Permission request notifies with kind
 - **WHEN** a session emits `needs.input` with kind `permission`
