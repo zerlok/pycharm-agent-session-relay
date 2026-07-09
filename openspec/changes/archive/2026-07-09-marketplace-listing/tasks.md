@@ -16,8 +16,8 @@
 
 - [x] 2.1 Add GitHub source and issue-tracker links to the `<description>`
 - [x] 2.2 Keep the source images for the screenshot set under `docs/images/`
-- [ ] 2.3 Upload the `docs/images/example-*.png` screenshot set to the Marketplace gallery (web UI)
-- [ ] 2.4 Fill the Marketplace dedicated Source Code and Bug Tracker link fields
+- [x] 2.3 Upload the `docs/images/example-*.png` screenshot set to the Marketplace gallery (web UI)
+- [x] 2.4 Fill the Marketplace dedicated Source Code and Bug Tracker link fields
 
 ## 3. README consistency (contributor altitude)
 
@@ -30,5 +30,5 @@
 
 - [x] 4.1 Sweep README and `plugin.xml` for residual "gutter marker/icon", "tells agent",
       "whole-file", "batch-level" claims — none remain
-- [ ] 4.2 Note the separate `/opsx:sync` cleanup for the stale "render a persistent gutter marker"
+- [x] 4.2 Note the separate `/opsx:sync` cleanup for the stale "render a persistent gutter marker"
       requirement in the `review-batch` main spec (out of scope for this change)

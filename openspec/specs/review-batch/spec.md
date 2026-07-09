@@ -27,7 +27,7 @@ scopes, with the remaining scopes modeled but not yet authored.
 
 The plugin SHALL hold the pending comments in a project-scoped store service supporting add, delete,
 and clear, and SHALL notify registered listeners whenever the set changes. The store is the single
-source of truth that the gutter markers and the tool window render from.
+source of truth that the inline cards and the tool window render from.
 
 #### Scenario: Adding a comment notifies listeners
 
@@ -37,24 +37,8 @@ source of truth that the gutter markers and the tool window render from.
 #### Scenario: Store is the single source for all surfaces
 
 - **WHEN** the batch changes (add, delete, or clear)
-- **THEN** the gutter markers and the tool window both update from the store, without holding a
+- **THEN** the inline cards and the tool window both update from the store, without holding a
   separate copy
-
-### Requirement: Display stored-comment markers in the gutter
-
-The plugin SHALL render a persistent gutter marker on each line range that has a pending comment,
-distinct from the transient hover add-comment affordance, and SHALL update the markers when the
-batch changes.
-
-#### Scenario: Marker appears on a commented line range
-
-- **WHEN** a comment exists for lines 10–15 of a file open in the editor
-- **THEN** a stored-comment gutter marker is shown against that line range
-
-#### Scenario: Marker removed when its comment is deleted
-
-- **WHEN** the user deletes a comment
-- **THEN** its stored-comment gutter marker is removed from the editor
 
 ### Requirement: List pending comments in a tool window
 
@@ -74,14 +58,13 @@ editor on request.
 
 ### Requirement: Delete pending comments
 
-The plugin SHALL allow the user to delete any pending comment from the gutter, the tool window, or
-the comment's inline card, keeping the store, gutter, inline card, and tool window in sync.
+The plugin SHALL allow the user to delete any pending comment from the tool window or the comment's
+inline card, keeping the store, inline card, and tool window in sync.
 
 #### Scenario: Delete keeps all surfaces in sync
 
-- **WHEN** the user deletes a comment from the gutter, the tool window, or its inline card
-- **THEN** it is removed from the store, and its gutter marker, inline card, and tool-window entry
-  all disappear
+- **WHEN** the user deletes a comment from the tool window or its inline card
+- **THEN** it is removed from the store, and its inline card and tool-window entry all disappear
 
 ### Requirement: Update a pending comment's body
 
@@ -111,8 +94,8 @@ the card SHALL fall back to spanning the full editor width. The card's height SH
 short comment reserves little vertical space. Each card SHALL offer an Edit affordance and a Delete
 affordance, revealed on hover (a hover toolbar) rather than shown as a permanent row, so a resting
 card is only as tall as its body. The cards SHALL be derived from the store and reconciled when the
-batch changes (add, update, delete, clear), the same single-source-of-truth rule the gutter markers
-follow. A card SHALL NOT be rendered for a comment while that comment is open in an edit box.
+batch changes (add, update, delete, clear), following the same single-source-of-truth rule as the
+tool window. A card SHALL NOT be rendered for a comment while that comment is open in an edit box.
 
 #### Scenario: Card appears under a commented range
 
@@ -196,7 +179,7 @@ The plugin SHALL persist the pending review batch to durable per-user storage so
 #### Scenario: Comments render on file open after restart
 
 - **WHEN** a document with restored comments is opened after a restart
-- **THEN** its gutter markers, inline cards, and tool-window entries render from the restored store at the recorded line ranges, exactly as if the IDE had not been restarted
+- **THEN** its inline cards and tool-window entries render from the restored store at the recorded line ranges, exactly as if the IDE had not been restarted
 
 #### Scenario: Empty batch persists as empty
 
