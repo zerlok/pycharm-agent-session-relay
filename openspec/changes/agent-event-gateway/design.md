@@ -194,6 +194,17 @@ registry API carry it, but no connector is implemented. This keeps the deferred
 `agent-server connectors` change additive. The registration's remote↔local mapping is the
 same seam future targeted review delivery (ARCHITECTURE.md §6) will use.
 
+**Deferred sandbox-management, shape clarified: session commands are user config, not
+session data.** The launch command of a session (agent binary + args) is chosen when the
+session *starts*, from a user-authored environment config (e.g. `sandbox1 → ssh devbox,
+claude --dangerously-skip-permissions`; `sandbox2 → codex --deny-tool kubectl`).
+Attaching to an already-running detached session cannot change its command — attach only
+reuses the environment's connection. Commands therefore only ever originate from local
+user config; registrations and events never carry anything executable (this is why the
+earlier `attach_hint` field was removed, and it holds for future launch/attach features
+too). A registration may later reference its environment config by name — the v1
+ignore-unknown-fields rule keeps that additive.
+
 ### D7. Registry is an application-level service; views are project-scoped
 
 The built-in server (and thus the gateway) is application-wide, and sessions outlive

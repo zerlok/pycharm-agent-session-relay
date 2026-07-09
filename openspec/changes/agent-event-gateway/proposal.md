@@ -61,9 +61,9 @@ command the IDE would execute).
 None — the shipped review capabilities (`review-annotation`, `review-batch`,
 `review-export`, `review-delivery`) are untouched. Deferred follow-ons that will build on
 this foundation (out of scope here, seams reserved): session stats, sandbox management
-(configure/launch docker & ssh sandboxes from the IDE, attach-from-registry), agent-server
-connectors, targeted multi-session review delivery (ARCHITECTURE.md §6), typed terminal
-delivery.
+(user-defined environment configs owning the launch commands — e.g. `sandbox1: claude …`,
+`sandbox2: codex …` — with launch/attach from the IDE), agent-server connectors, targeted
+multi-session review delivery (ARCHITECTURE.md §6), typed terminal delivery.
 
 ## Impact
 
