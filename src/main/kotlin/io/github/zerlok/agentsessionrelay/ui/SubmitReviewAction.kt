@@ -8,6 +8,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import io.github.zerlok.agentsessionrelay.delivery.ReviewDelivery
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.nio.file.Files
@@ -64,7 +65,13 @@ class SubmitReviewAction :
     private fun writeReview(project: Project, basePath: String, content: String) {
         object : Task.Backgroundable(project, "Writing ${ReviewDelivery.FILE_NAME}", false) {
             override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
-                Files.writeString(Path.of(basePath, ReviewDelivery.FILE_NAME), content)
+                val reviewPath = Path.of(basePath, ReviewDelivery.FILE_NAME)
+                Files.writeString(reviewPath, content)
+                // The raw nio write bypasses the VFS, so the new file wouldn't appear in Project view
+                // until an unrelated refresh. A targeted, synchronous VFS refresh registers it now — and
+                // must run here off the EDT (a synchronous VFS refresh on the EDT is disallowed). A null
+                // return (path unresolved) is benign: the file was just written.
+                LocalFileSystem.getInstance().refreshAndFindFileByNioFile(reviewPath)
             }
 
             // Task.Backgroundable runs onSuccess / onThrowable back on the EDT.

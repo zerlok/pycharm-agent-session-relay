@@ -1,0 +1,8 @@
+<svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Relay chevron mark (teal + violet, from pluginIcon.svg) paired with a "+" so the gutter
+       affordance is recognizably Relay's, not the plain platform "+". -->
+  <path d="M2 2.5 L4.3 5 L2 7.5" stroke="#0FAE9A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M5 2.5 L7.3 5 L5 7.5" stroke="#6F57FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M9 6.5 L9 11" stroke="#0FAE9A" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M6.75 8.75 L11.25 8.75" stroke="#0FAE9A" stroke-width="1.6" stroke-linecap="round"/>
+</svg>

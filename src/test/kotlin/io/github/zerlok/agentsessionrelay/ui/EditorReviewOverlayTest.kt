@@ -69,6 +69,20 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         assertEquals(Subject.Line(url, 3), overlay.currentPositions()[comment.id])
     }
 
+    /**
+     * A store subject change (the user re-editing a comment's range) repositions the live marker, so
+     * the marker read via [EditorReviewOverlay.currentPositions] reports the NEW range — not the stale
+     * built-from range. Guards against reconcileMarkers leaving an existing marker at its old range.
+     */
+    fun `test updating a comment's position repositions its marker`() {
+        val comment = service.addComment(Subject.Line(url, 1), "here")
+        assertEquals(Subject.Line(url, 1), overlay.currentPositions()[comment.id])
+
+        service.updatePosition(comment.id, Subject.LineRange(url, 3, 4))
+
+        assertEquals(Subject.LineRange(url, 3, 4), overlay.currentPositions()[comment.id])
+    }
+
     /** A comment on another file is not projected onto this editor's overlay. */
     fun `test currentPositions ignores comments for other files`() {
         service.addComment(Subject.Line("file:///elsewhere.py", 0), "other")

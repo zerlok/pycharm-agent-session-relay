@@ -497,7 +497,9 @@ class CommentDraft private constructor(
             }.apply {
                 isOpaque = true
                 background = editor.colorsScheme.defaultBackground
-                border = JBUI.Borders.empty(8, 12)
+                // A bordered outer box (1px theme line + 8x12 padding) matching StoredCommentCard's
+                // outer frame, so the draft and the read-only card frame identically.
+                border = JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1), JBUI.Borders.empty(8, 12))
                 // Show a normal arrow (not the editor's text I-beam) while hovering the box chrome.
                 cursor = Cursor.getDefaultCursor()
                 // The EditorTextField wraps its own inner editor (with its own scrollbar/soft-wrap),

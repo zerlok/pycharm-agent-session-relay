@@ -1,10 +1,10 @@
 package io.github.zerlok.agentsessionrelay.ui
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.markup.GutterIconRenderer
+import com.intellij.openapi.util.IconLoader
 import javax.swing.Icon
 
 /** The "+" icon shown in the gutter of the hovered line; clicking it opens an inline comment draft. */
@@ -13,9 +13,11 @@ class AddCommentGutterIconRenderer(
     private val line: Int,
 ) : GutterIconRenderer() {
 
-    override fun getIcon(): Icon = AllIcons.General.Add
+    // Relay-branded "+" so the affordance is distinguishable at a glance from the plain platform "+"
+    // that GitHub/GitLab review plugins place in the gutter; the tooltip names the owner too.
+    override fun getIcon(): Icon = ICON
 
-    override fun getTooltipText(): String = "Add review comment"
+    override fun getTooltipText(): String = "Relay: add review comment"
 
     override fun isNavigateAction(): Boolean = true
 
@@ -34,4 +36,9 @@ class AddCommentGutterIconRenderer(
         other is AddCommentGutterIconRenderer && other.editor === editor && other.line == line
 
     override fun hashCode(): Int = line
+
+    private companion object {
+        private val ICON: Icon =
+            IconLoader.getIcon("/icons/relayAddComment.svg", AddCommentGutterIconRenderer::class.java)
+    }
 }

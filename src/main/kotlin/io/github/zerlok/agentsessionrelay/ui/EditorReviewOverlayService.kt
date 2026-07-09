@@ -2,6 +2,7 @@ package io.github.zerlok.agentsessionrelay.ui
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Document
@@ -56,8 +57,21 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
                 override fun beforeDocumentSaving(document: Document) = syncPositions(document)
             })
 
-        // Seed: editorCreated won't fire for editors already open when the project loads.
-        for (editor in factory.allEditors) maybeCreate(editor)
+        // Seed editors already open before this service existed (editorCreated fires only for later
+        // ones). Seeding builds inlays and reads the editor viewport — EDT-only — but the service can
+        // be instantiated off the EDT (the RelayHoverInstaller ProjectActivity touches it on a
+        // background dispatcher at startup), so marshal the seed onto the EDT. editorCreated/Released
+        // already arrive on the EDT.
+        val app = ApplicationManager.getApplication()
+        if (app.isDispatchThread) {
+            seedExistingEditors()
+        } else {
+            app.invokeLater({ if (!project.isDisposed) seedExistingEditors() }, ModalityState.nonModal())
+        }
+    }
+
+    private fun seedExistingEditors() {
+        for (editor in EditorFactory.getInstance().allEditors) maybeCreate(editor)
     }
 
     /**

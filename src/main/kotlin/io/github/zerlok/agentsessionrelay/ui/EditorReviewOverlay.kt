@@ -57,6 +57,12 @@ class EditorReviewOverlay(
 
     private val markers = HashMap<CommentId, RangeHighlighter>()
 
+    // The subject each marker was built from. A marker tracks in-IDE edits live (its offsets drift),
+    // but the store subject it was seeded from does not — so an explicit store subject change (the user
+    // re-editing the range) is detected by comparing the stored comment against this recorded value,
+    // never against the marker's live offsets, which would fight the live-position-source role (§3.2).
+    private val markerSubjects = HashMap<CommentId, Subject>()
+
     // The read-only card inlays, keyed by comment. Unlike a marker (whose position tracks edits
     // live), a card's body and offset are fixed at creation, so it is rebuilt when its comment
     // changes; [cardModels] records the comment each card was built from to detect that.
@@ -123,8 +129,15 @@ class EditorReviewOverlay(
 
         // Dispose markers whose comment is gone (deleted / cleared / moved off this file).
         for (id in markers.keys - wanted.keys) removeMarker(id)
-        // Add markers for comments new to this editor; leave existing ones (live source of truth).
-        for ((id, comment) in wanted) if (id !in markers) addMarker(comment)
+        // Add markers new to this editor; reposition (recreate) one whose store subject changed since it
+        // was built (the user edited its range); leave the rest so live in-IDE drift is preserved.
+        for ((id, comment) in wanted) {
+            if (id !in markers) addMarker(comment)
+            else if (markerSubjects[id] != comment.subject) {
+                removeMarker(id)
+                addMarker(comment)
+            }
+        }
     }
 
     /**
@@ -172,9 +185,11 @@ class EditorReviewOverlay(
         // always-visible card; the range is revealed on card hover. `StoredCommentGutterIconRenderer`
         // is kept unwired in the tree for the deferred hide-comments change to re-attach here.
         markers[comment.id] = highlighter
+        markerSubjects[comment.id] = comment.subject
     }
 
     private fun removeMarker(id: CommentId) {
+        markerSubjects.remove(id)
         val highlighter = markers.remove(id) ?: return
         if (highlighter.isValid) markup.removeHighlighter(highlighter)
     }
@@ -269,6 +284,7 @@ class EditorReviewOverlay(
         // MessageBus connection was parented to `this` and disconnects with it.
         for (highlighter in markers.values) if (highlighter.isValid) markup.removeHighlighter(highlighter)
         markers.clear()
+        markerSubjects.clear()
         for (inlay in cards.values) if (inlay.isValid) Disposer.dispose(inlay)
         cards.clear()
         cardModels.clear()
