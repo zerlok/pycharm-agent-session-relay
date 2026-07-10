@@ -3,7 +3,7 @@
 ## 1. Domain & registry core
 
 - [ ] 1.1 Add `session` domain records (pure Kotlin, no platform imports, by-layer
-      package placement per design D7): `AgentSession` (session token as identity, agent,
+      package placement per design D7): `AgentSession` (opaque per-session id as identity, agent,
       kind `PUSH|SERVER` + optional endpoint, localPath, environment, remotePath?,
       capabilities incl. `turn_started`, state, lastEventAt) and `SessionState`
       (registered / working / idle / needs-input(kind) / ended / unknown) with unit tests
@@ -14,7 +14,7 @@
       parsing that ignores unknown fields and classifies unknown event types as tolerated
       no-ops (tests: valid events, unknown type, unknown fields, malformed JSON).
 - [ ] 1.3 Implement the application-level `SessionRegistryStorage` (dumb CRUD keyed by
-      session token) and `SessionRegistryService` (`@Service(APP)`) applying
+      session id) and `SessionRegistryService` (`@Service(APP)`) applying
       registrations and events on the EDT and publishing on a `SessionRegistryListener`
       MessageBus topic; dismissal API (drops entry + persistence, no side effects);
       tests mirroring the review-batch layering.
@@ -25,31 +25,32 @@
 
 ## 2. Gateway endpoint
 
-- [ ] 2.1 Implement the transport-agnostic `EventGateway` seam: launcher-token check for
-      registration, session-token resolution for events, parse → normalize → registry;
+- [ ] 2.1 Implement the transport-agnostic `EventGateway` seam: localhost registration
+      (no token), session-id resolution for events, parse → normalize → registry;
       per-agent normalizer registry with the Claude Code normalizer (SessionStart /
       UserPromptSubmit / Stop / Notification-by-matcher (`permission_prompt→permission`,
       `idle_prompt→idle`, `agent_needs_input→question`) / SessionEnd), capability
       defaulting (built-in adapter set when omitted; `turn_completed`-only for unknown
-      agents); unit tests per mapping, unmappable-payload drop, and token scoping.
-- [ ] 2.2 Implement the registration route `POST /relay/v1/sessions`: launcher-token
-      auth, `local_path`-under-open-project validation (`409` otherwise), per-session
-      token minting; tests for mint, 409, and idempotent behavior on re-registration.
-- [ ] 2.3 Implement the `HttpRequestHandler` extension for the ingest and events routes:
-      override `isSupported` to accept POST, bearer auth before body parsing (401 on
-      missing/unknown token), 4xx on malformed input, never throws into the built-in
-      server, hops to EDT for registry mutation.
-- [ ] 2.4 Descriptor lifecycle: generate the launcher token; write
-      `~/.relay/gateway/<port>.json` (0600 on POSIX, `{port, launcher_token, pid, ide}`)
-      on startup, delete on shutdown, and sweep sibling descriptors with dead pids on
-      startup; tests for the pure parts (content, sweep decision).
+      agents); unit tests per mapping, unmappable-payload drop, and session-id scoping.
+- [ ] 2.2 Implement the registration route `POST /relay/v1/sessions`: localhost (no
+      auth), `local_path`-under-open-project validation (`409` otherwise), per-session
+      id assignment, and prior-`session_id` rebind for resume continuity; tests for id
+      assignment, 409, rebind, and idempotent behavior on re-registration.
+- [ ] 2.3 Implement the `HttpRequestHandler` extension for the id-scoped ingest and
+      events routes: override `isSupported` to accept POST, resolve the session by the
+      id in the route (unknown id → acknowledged no-op), 4xx on malformed input, never
+      throws into the built-in server, hops to EDT for registry mutation.
+- [ ] 2.4 Descriptor lifecycle: write `~/.relay/gateway/<port>.json` (`{port, pid, ide}`,
+      no secret, per-user location) on startup, delete on shutdown, and sweep sibling
+      descriptors with dead pids on startup; tests for the pure parts (content, sweep
+      decision).
 
 ## 3. Claude Code adapter
 
 - [ ] 3.1 Author the injectable Claude settings JSON resource: hooks for SessionStart,
       UserPromptSubmit, Stop, Notification (permission_prompt / idle_prompt /
       agent_needs_input matchers), SessionEnd — each a one-line `curl -m 5` to
-      `"$RELAY_URL/relay/v1/ingest/claude/<event>"` with `$RELAY_TOKEN`, exit-zero on
+      `"$RELAY_URL/relay/v1/sessions/$RELAY_SESSION/ingest/claude/<event>"`, exit-zero on
       failure; bundle in plugin resources.
 - [ ] 3.2 Empirically verify `--settings` hook merge semantics against a pinned Claude
       Code version (does an injected hooks map merge with or replace the user's hooks?);
@@ -61,8 +62,9 @@
       OpenCode plugin) with capability asymmetries; launcher duties (descriptor
       discovery + pid check, registration, `$RELAY_URL` composition per environment —
       docker host-gateway / host network, ssh `-R` tunnel — and env delivery into the
-      spawned process incl. tmux `-e`); trust model (per-session token scope, loopback
-      exposure on shared hosts, no-local-data rule).
+      spawned process incl. tmux `-e`); trust model (no application auth; loopback + ssh-
+      tunnel transport boundary, optional `0600` UDS forward on shared hosts, events are
+      non-executable, no-local-data rule).
 
 ## 4. Sessions tool window
 
@@ -86,10 +88,10 @@
       suite and `buildPlugin`.
 - [ ] 6.2 End-to-end check without a real agent: with the gateway in `runIde` (or a
       handler-level integration test), play a scripted launcher + session via `curl` —
-      read descriptor → register (expect token; expect 409 for a foreign path) → POST the
-      Claude lifecycle sequence — and verify registry state transitions, tool window
-      rendering, notifications, 401 and malformed-payload paths, and restart restore
-      (unknown state, old token still valid).
+      read descriptor → register (expect a session id; expect 409 for a foreign path) →
+      POST the Claude lifecycle sequence to the id-scoped route — and verify registry
+      state transitions, tool window rendering, notifications, unknown-session and
+      malformed-payload paths, and restart restore (unknown state, same id still routes).
 - [ ] 6.3 Update `docs/ARCHITECTURE.md` (additive gateway/registry sections; app-level
       registry deviation and trust boundary noted) and `README.md` (observable-sessions
       feature; explicit non-goals: unlaunched sessions are not observed, no

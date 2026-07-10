@@ -13,20 +13,24 @@ agent by contract), and environment-agnostically (local, docker, remote sandbox)
 ## What Changes
 
 - Relay exposes an **HTTP event gateway** on the IDE's built-in web server with two
-  surfaces: a **launcher registration API** (local-only trust: the launcher registers a
-  session with its local project path, environment, and remote-path mapping, and receives
-  a **per-session bearer token**) and an **event ingestion API** (agents, via thin
-  adapters, POST lifecycle events — raw native hook payloads or normalized events —
-  authenticated by that session token). Events are **fire-and-forget** — no durable event
-  log, no replay. Session *registrations* (token + metadata) persist across IDE restarts
-  so surviving sessions keep reporting; live *state* does not persist.
+  surfaces: a **launcher registration API** (local-only, same-user trust: the launcher
+  registers a session with its local project path, environment, and remote-path mapping,
+  and receives an **opaque per-session id**) and an **event ingestion API** (agents, via
+  thin adapters, POST lifecycle events — raw native hook payloads or normalized events —
+  to that session's id-scoped route). There is **no application-level authentication**:
+  the built-in web server binds loopback and remote sessions reach it only through the
+  launcher's ssh reverse tunnel, which is the trust boundary. Events are
+  **fire-and-forget** — no durable event log, no replay. Session *registrations* (id +
+  metadata) persist across IDE restarts so surviving sessions keep reporting; live *state*
+  does not persist.
 - **Trust boundary**: nothing local (project paths, credentials) is ever sent to the
-  agent's environment except the gateway URL and the session token. The gateway holds the
-  remote↔local path mapping; sandboxes only ever see data that already lives inside the
-  synced project plus those two env vars.
+  agent's environment except the gateway URL and the non-secret per-session id. The
+  gateway holds the remote↔local path mapping; sandboxes only ever see data that already
+  lives inside the synced project plus those two env vars.
 - **Built-in agent adapters**, starting with Claude Code: launch-time-injected hook
-  configuration (`claude --settings <json>`) whose hook commands POST to `$RELAY_URL`
-  with `$RELAY_TOKEN`. Adapters are **environment-blind**; the **launcher owns topology**
+  configuration (`claude --settings <json>`) whose hook commands POST to the session's
+  id-scoped route under `$RELAY_URL` (the session id travels in `$RELAY_SESSION`).
+  Adapters are **environment-blind**; the **launcher owns topology**
   (local = direct, docker = host-gateway/host-network URL, remote = ssh reverse tunnel).
   Hard rule: **Relay never modifies the user's existing local or global agent settings.**
 - A **session registry** service plus a Sessions tool window: sessions of the current
@@ -46,9 +50,10 @@ command the IDE would execute).
 
 ### New Capabilities
 
-- `agent-event-gateway`: the launcher registration API, per-session token auth, the
-  versioned normalized event schema with per-adapter capability declaration, and the
-  session registry it feeds (persistent registrations, ephemeral state).
+- `agent-event-gateway`: the launcher registration API, per-session addressing (no
+  tokens; loopback + ssh-tunnel transport as the trust boundary), the versioned
+  normalized event schema with per-adapter capability declaration, and the session
+  registry it feeds (persistent registrations, ephemeral state).
 - `agent-adapters`: the per-agent adapter + launch-time injection contract (Claude Code
   implemented; Codex/OpenCode/Gemini/Cursor/custom documented as contract), including the
   never-touch-user-settings requirement.
@@ -67,7 +72,7 @@ multi-session review delivery (ARCHITECTURE.md §6), typed terminal delivery.
 
 ## Impact
 
-- **New code**: gateway (HttpRequestHandler + auth + schema DTOs + per-agent
+- **New code**: gateway (HttpRequestHandler + schema DTOs + per-agent
   normalizers), session registry (domain + storage + `@Service` logic + MessageBus topic,
   per ARCHITECTURE.md §3.1 layering; package placement follows the existing by-layer
   convention — see design), `ui/` additions (Sessions tool window, notifier), bundled
@@ -77,7 +82,7 @@ multi-session review delivery (ARCHITECTURE.md §6), typed terminal delivery.
   `PersistentStateComponent` for the registration table.
 - **External contract**: launchers (reference: the user's `claude-connect` CLI) read the
   gateway descriptor, register the session (local path, environment, remote path), and
-  inject `$RELAY_URL`/`$RELAY_TOKEN` + adapter config at spawn time, opening the reverse
+  inject `$RELAY_URL`/`$RELAY_SESSION` + adapter config at spawn time, opening the reverse
   tunnel for remote sandboxes. The event schema is versioned so custom agents can target
   it.
 - **Docs**: `docs/ARCHITECTURE.md` gains the gateway/registry sections (additive; existing

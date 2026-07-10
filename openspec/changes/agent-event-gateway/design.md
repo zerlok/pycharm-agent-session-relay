@@ -36,7 +36,7 @@ mature OTel export (deferred stats tier).
   on turn-complete and needs-input.
 - Adapters injectable at launch time with zero mutation of user agent configuration.
 - A hard trust boundary: no local data (paths, credentials) crosses into the agent's
-  environment beyond the gateway URL and the session token.
+  environment beyond the gateway URL and the non-secret per-session id.
 - Schema seams for the deferred follow-ons: stats, sandbox management from the IDE,
   agent-server (pull) connectors, per-session review delivery.
 
@@ -63,8 +63,9 @@ mature OTel export (deferred stats tier).
 
 Agents notify Relay by POSTing JSON to the gateway. Adapters are **environment-blind**:
 they depend on exactly two injected env vars — `$RELAY_URL` (the gateway base URL as
-reachable *from the agent's environment*) and `$RELAY_TOKEN` (the per-session token) —
-and never anything else. Composing a `$RELAY_URL` that routes home is the launcher's job:
+reachable *from the agent's environment*) and `$RELAY_SESSION` (the non-secret
+per-session id assigned at registration) — and never anything else. Composing a
+`$RELAY_URL` that routes home is the launcher's job:
 
 ```
  local   → http://127.0.0.1:<ide-port>
@@ -81,7 +82,7 @@ varies, the adapter's behavior doesn't.)
 
 This invariant is also the seam for deferred `sandbox-management`: "launch from IDE" adds
 launchers, never touches adapters, gateway, or schema. The custom-agent story is one
-sentence: POST this JSON to `$RELAY_URL` with `$RELAY_TOKEN` (curl is the reference
+sentence: POST this JSON to the session's route under `$RELAY_URL` (curl is the reference
 adapter).
 
 *Alternative considered — status files in the project dir carried by mutagen/bind-mount:*
@@ -95,11 +96,12 @@ The endpoint rides the IDE's built-in web server via the `HttpRequestHandler` ex
 point — no thread/lifecycle management, port already allocated (63342+, one per IDE
 instance). Two implementation facts the tasks must honor: `HttpRequestHandler.isSupported`
 accepts only GET/HEAD by default, so the handler must override it to accept POST; and a
-raw `HttpRequestHandler` bypasses the platform's `RestService` origin/trust checks — the
-plugin owns authentication entirely (D8), which is fine for loopback + bearer-token use.
+raw `HttpRequestHandler` bypasses the platform's `RestService` origin/trust checks —
+there is no authentication to bypass, the plugin owns request handling entirely (D8),
+which is fine for loopback + ssh-tunnel use.
 
-The handler is a thin shell: it authenticates, parses, and hands a validated event to a
-transport-agnostic `EventGateway` service. A later change may swap in a plugin-owned
+The handler is a thin shell: it resolves the session by the id in the route, parses, and
+hands a validated event to a transport-agnostic `EventGateway` service. A later change may swap in a plugin-owned
 daemon (own ephemeral port) without touching anything behind the seam.
 
 *Alternative — plugin-owned server now:* better isolation from the IDE's other HTTP
@@ -112,35 +114,38 @@ Three different lifetimes, deliberately:
 - **Events**: never persisted, never replayed. If the IDE is closed or the tunnel is down
   when an event fires, the POST fails silently (adapters MUST tolerate connection failure
   and never block or fail the agent's own flow — hook timeouts matter).
-- **Registrations** (session token + metadata: agent, local path, environment, mapping,
-  capabilities): persisted application-side (`PersistentStateComponent`). A session that
-  survives an IDE restart keeps its injected `$RELAY_TOKEN` in its process environment
-  and cannot receive a new one (re-exporting env into a running tmux process is
-  impossible) — so tokens MUST remain valid across restarts. Persisting the registration
-  table is what makes that work.
+- **Registrations** (session id + metadata: agent, local path, environment, mapping,
+  capabilities): persisted application-side (`PersistentStateComponent`). Nothing secret
+  is stored — the session id is a non-secret routing key. A session that survives an IDE
+  restart keeps its injected `$RELAY_SESSION` id in its process environment and cannot
+  receive a new one (re-exporting env into a running tmux process is impossible) — so the
+  id MUST stay valid across restarts. Persisting the registration table is what keeps the
+  session addressable and project-scoped after a restart; a resumed-after-death process is
+  re-launched with the *same* id, so continuity falls out for free.
 - **Live state**: in-memory only. After a restart, restored sessions come back in state
   `UNKNOWN` ("no live signal since IDE start") and correct themselves on their next
   event. Ended sessions are dropped from persistence.
 
-This also answers "what does the gateway do with an event whose token it knows but whose
-session isn't live in memory": the registration is restored from persistence and the
-event applies to it — the common path after every IDE restart.
+This also answers "what does the gateway do with an event whose session id it knows but
+whose session isn't live in memory": the registration is restored from persistence and
+the event applies to it — the common path after every IDE restart.
 
 ### D4. Thin adapters, fat gateway: normalization happens in plugin code
 
 Adapters do **not** normalize payloads. The gateway exposes:
 
 ```
- POST /relay/v1/sessions                        launcher registration (D8) → session token
- POST /relay/v1/ingest/<agent>/<native-event>   raw native hook payload, forwarded as-is
- POST /relay/v1/events                          already-normalized Relay events (custom agents)
+ POST /relay/v1/sessions                                     launcher registration (D8) → session id
+ POST /relay/v1/sessions/<id>/ingest/<agent>/<native-event>  raw native hook payload, forwarded as-is
+ POST /relay/v1/sessions/<id>/events                         already-normalized Relay events (custom agents)
 ```
 
 Per-agent normalizers (Kotlin, unit-testable) map native payloads to normalized events.
 The Claude Code adapter therefore collapses to a `--settings` JSON whose hook commands are
-one-line `curl -s -m 5 -X POST -H "Authorization: Bearer $RELAY_TOKEN" --data-binary @- \
-"$RELAY_URL/relay/v1/ingest/claude/<event>"` invocations — no scripts to ship into
-sandboxes, no jq/python dependency there; `curl` is the only remote requirement.
+one-line `curl -s -m 5 -X POST --data-binary @- \
+"$RELAY_URL/relay/v1/sessions/$RELAY_SESSION/ingest/claude/<event>"` invocations — no
+scripts to ship into sandboxes, no jq/python dependency there; `curl` is the only remote
+requirement.
 
 *Alternative — shell-side normalization scripts synced to the sandbox:* rejected —
 untestable, adds remote runtime dependencies and a script-versioning problem.
@@ -149,8 +154,9 @@ untestable, adds remote runtime dependencies and a script-versioning problem.
 
 `v1` events (JSON, `schema: 1` field; unknown fields ignored, unknown event types
 acknowledged-and-dropped so old plugins tolerate new adapters). **Session identity is the
-bearer token** — event bodies carry no session identifier of their own; agent-native ids
-(e.g. Claude's `session_id`) are stored as informational attributes.
+per-session id in the request route** (assigned at registration, non-secret) — event
+bodies carry no session identifier of their own; agent-native ids (e.g. Claude's
+`session_id`) are stored as informational attributes.
 
 - `session.started` — the agent process came up (or resumed)
 - `turn.started` — the agent began working on a prompt
@@ -231,36 +237,49 @@ indicator for a session whose adapter lacks `needs_input`; no working state with
 `turn_started`. Every entry shows its last-event timestamp so a silent session is
 readable as silent rather than lying "idle".
 
-### D8. Launcher registration handshake; per-session tokens; trust boundary
+### D8. Localhost registration; per-session addressing; no tokens
+
+There is **no application-level authentication.** Security rests on the transport, not on
+credentials the plugin issues:
+
+- The built-in web server **binds loopback**, so nothing off-host reaches it directly.
+- **Local** agents post to `127.0.0.1` directly; **remote** agents reach the gateway only
+  through the launcher's **ssh reverse tunnel**, whose host-key verification handles MITM
+  and whose forwarded port is reachable only by the connecting user.
+- Events are **fire-and-forget and non-executable** — a POST produces a notification or a
+  registry-state change and nothing the IDE ever executes (attach/run actions are
+  deliberately excluded, D6). The worst case of a forged event is therefore a *misleading
+  notification*, which sets a low bar for what the transport must guarantee.
 
 The launcher — which runs on the IDE host and is the only party that knows the full
-picture — registers each session before spawning it:
+picture — registers each session before spawning it, over loopback:
 
 ```
  launcher                                    gateway (IDE)
-    │  read ~/.relay/gateway/<port>.json        │  descriptor: { port, launcher_token,
-    │  (launcher_token = registration cred)     │               pid, ide }
+    │  read ~/.relay/gateway/<port>.json        │  descriptor: { port, pid, ide }
+    │  (discovery only — no secret)             │
     │                                           │
-    ├─ POST /relay/v1/sessions ────────────────▶│  validate launcher_token;
-    │  { schema:1, agent, kind, local_path,     │  local_path under an open project?
-    │    environment: local|docker|ssh:<host>,  │    no → 409 (launcher tries the
-    │    remote_path?, capabilities?,           │          next IDE's descriptor)
-    │    endpoint? (kind=server) }              │    yes → mint per-session token,
-    │◀── 201 { session_token } ─────────────────┤          store registration
+    ├─ POST /relay/v1/sessions ────────────────▶│  local_path under an open project?
+    │  { schema:1, agent, kind, local_path,     │    no → 409 (launcher tries the
+    │    environment: local|docker|ssh:<host>,  │          next IDE's descriptor)
+    │    remote_path?, capabilities?,           │    yes → assign per-session id,
+    │    endpoint? (kind=server), session_id? } │          store registration
+    │◀── 201 { id } ────────────────────────────┤
     │                                           │
-    └─ spawn agent with RELAY_URL + RELAY_TOKEN(session) + adapter injection
+    └─ spawn agent with RELAY_URL + RELAY_SESSION(id) + adapter injection
 ```
 
 Consequences, each load-bearing:
 
-- **Per-session tokens.** The token *is* the session identity (D5) and the authorization
-  scope: a leaked or abused token can only speak for its own session, never forge events
-  for others. (A shared gateway-wide token was considered and rejected — on a multi-user
-  sandbox the reverse tunnel is reachable by any local user, and env vars are readable by
-  same-user processes; per-session scope bounds that blast radius.)
+- **Per-session addressing, not authentication.** The id scopes an event to one session
+  and *is* the session identity (D5); it is a routing key, not a secret, and the gateway
+  never relies on its confidentiality. An event whose id matches no registration is
+  acknowledged and dropped. (OS process-env isolation incidentally keeps `$RELAY_SESSION`
+  out of other users' reach and the id is unguessable, but the design depends on neither —
+  the transport is the boundary.)
 - **Trust boundary.** Local project paths, environment descriptions, and mappings travel
   launcher → gateway, entirely on the IDE host. The agent's environment receives exactly
-  two values: `$RELAY_URL`, `$RELAY_TOKEN`. Nothing a sandbox reports is trusted to
+  two values: `$RELAY_URL`, `$RELAY_SESSION`. Nothing a sandbox reports is trusted to
   describe the local machine; the gateway's own registration record is authoritative for
   environment, paths, and project scoping — which is also what makes remote sessions
   scopable at all (D7).
@@ -271,16 +290,28 @@ Consequences, each load-bearing:
 - **Multi-IDE disambiguation.** One descriptor per running IDE; registration is rejected
   (`409`) when `local_path` is not under any open project, so a launcher walks
   descriptors until one accepts — no project field needed in the descriptor itself.
-- **Descriptor hygiene.** Written on gateway start (`0600` on POSIX; best-effort ACL on
-  Windows), deleted on shutdown, and on startup the gateway sweeps sibling descriptors
-  whose `pid` is dead — stale files from crashes are collected by the next IDE start.
-  Launchers SHOULD validate `pid` liveness before trusting a descriptor.
+- **Resume-after-death continuity.** A launcher re-launching a dead session passes the
+  prior `session_id`; the gateway rebinds the existing registration instead of creating a
+  second entry, so the user sees one continuous session. A fresh launch omits it and gets
+  a new id.
+- **Descriptor hygiene.** Written on gateway start to a per-user location (never inside a
+  project dir where file sync could carry it to a sandbox), deleted on shutdown, and on
+  startup the gateway sweeps sibling descriptors whose `pid` is dead — stale files from
+  crashes are collected by the next IDE start. Launchers SHOULD validate `pid` liveness
+  before trusting a descriptor.
 - **Custom local agents** without a separate launcher may perform the same handshake
-  themselves (they run on the IDE host and can read the descriptor), then use the token
-  for their own events.
+  themselves (they run on the IDE host and can read the descriptor), then post events to
+  their id-scoped route.
 - The agent string in a registration is not restricted to known adapters: unknown agents
   are accepted with whatever capabilities they declare (default: `turn_completed` only);
   built-in agent names get their adapter's capability set when the registration omits it.
+
+*Residual risk (accepted):* a party already inside a session's trust — same user, root, or
+someone sitting on the open ssh tunnel — can post forged events for *that* session; the
+impact ceiling is a wrong notification or state dot, no code runs and nothing leaks. For
+shared multi-user sandboxes wanting defense in depth, the launcher MAY reverse-forward over
+a `0600` Unix domain socket so only the connecting user can reach the tunnel — a transport
+choice, still no plugin-side auth.
 
 *Alternative — anonymous/self registration from the agent side (an earlier draft's
 `session.registered` event):* rejected — the agent side cannot know environment or local
@@ -309,13 +340,14 @@ doc.
   timeouts so the agent never blocks; persisted registrations mean the session recovers
   on its next event rather than needing a relaunch.
 - [R2: built-in server port is a shared IDE surface; any local process could probe it] →
-  per-session bearer tokens on every route; launcher token for registration; 401 before
-  body parsing; descriptor `0600`.
+  loopback bind; events are non-executable so a probe yields at most a fake notification;
+  no secret lives on the port to steal; registration is a localhost same-user call.
 - [R3: multi-user sandbox can reach the reverse tunnel's loopback bind] → accepted with
-  bounded blast radius: a hostile same-host actor holding a stolen session token can
-  spoof state/notifications *for that session only*; registry entries carry nothing the
-  IDE executes (attach actions deliberately excluded), so spoofing misleads but cannot
-  run code. Trust model documented in the adapter contract.
+  bounded blast radius: a hostile same-host actor who reaches the tunnel can spoof
+  state/notifications *for that session only*; registry entries carry nothing the IDE
+  executes (attach actions deliberately excluded), so spoofing misleads but cannot run
+  code. An optional `0600` Unix-domain-socket forward isolates the tunnel to the
+  connecting user. Trust model documented in the adapter contract.
 - [R4: stale sessions — agent killed, tunnel dropped, no `session.ended`] → the plugin
   does not own or probe remote resources (Non-Goal); the UI mitigates honestly:
   last-event timestamps (D7a), `UNKNOWN` state after restarts, and any session is
@@ -333,7 +365,7 @@ doc.
   settings file at launch (launcher-side, still zero mutation of user files).
 - [R9: env vars must actually reach hook subprocesses in tmux] → hook commands run via
   `/bin/sh -c` and inherit the claude process env; the launcher must ensure `RELAY_URL`/
-  `RELAY_TOKEN` are in that env when it creates the tmux session (e.g. `tmux new-session
+  `RELAY_SESSION` are in that env when it creates the tmux session (e.g. `tmux new-session
   -e`, or exporting before exec) — a documented launcher duty, and claude-connect creates
   its own tmux sessions so it controls this.
 
