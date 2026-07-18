@@ -52,6 +52,23 @@ The export uses Claude Code's native reference syntax (`@path/file.py#L10-15` + 
 body), so the agent resolves anchors directly — no in-file comment markers that would
 collide with the agent's own edits under bidirectional sync.
 
+## Launch & observe agent sessions
+
+Relay also **launches agent sessions from the IDE and shows them live** — agent-agnostic
+(Claude Code, Codex, or any harness), local or remote. You author a **start script** in
+**Settings → Tools → Agent Session Relay**; launching it opens a terminal in a dedicated
+**Agent Sessions** tool window with a tiny env contract exported (`AGENT_SESSION_RELAY_URL`,
+`AGENT_SESSION_RELAY_ID`, `AGENT_SESSION_RELAY_PORT`, `AGENT_SESSION_RELAY_PROJECT_DIR`) and
+runs your command. Your agent's hooks `curl` one normalized webhook —
+`POST $AGENT_SESSION_RELAY_URL/relay/v1/sessions/$AGENT_SESSION_RELAY_ID/events/<type>` — and
+the session's state (idle · working · needs-input · ended) updates live, with an IDE
+notification and optional beep on turn-complete and needs-input.
+
+Wiring an agent's native hooks to the normalized events is done **entirely in your own start
+script** — Relay ships no agent-specific code and never writes any agent settings file. See
+**[`docs/ADAPTERS.md`](docs/ADAPTERS.md)** for the full contract and a worked Claude Code
+example.
+
 ## What Relay is *not*
 
 - It does **not** emulate a terminal — it reuses PyCharm's.
@@ -61,6 +78,16 @@ collide with the agent's own edits under bidirectional sync.
   Carrying files to and from a remote sandbox is the session's own job. (Reading your local
   working-tree diff for change detection is fine; the constraint is only about cross-host
   commit/push/pull.)
+- It ships **no agent-specific code** — no per-agent event normalizer, no auto-injection of
+  hook config — and **never modifies your agent settings** (`~/.claude/settings.json`, …). All
+  hook wiring lives in your per-invocation start script.
+- It does **not** own sandbox topology — tunnels, tmux, containers, sync daemons are your
+  connection tooling's job. Relay only injects the env contract and runs your command;
+  making `AGENT_SESSION_RELAY_URL` route home from a sandbox (docker host-gateway, `ssh -R`) is
+  the start script's responsibility.
+- Received events are **non-executable** and are **never persisted or replayed**: only
+  registrations survive a restart (restored as `unknown`); a forged event can at worst show a
+  misleading notification.
 
 ## Development
 

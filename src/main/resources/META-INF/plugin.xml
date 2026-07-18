@@ -34,14 +34,35 @@
 
     <!-- Works in any IntelliJ-based IDE, including PyCharm. -->
     <depends>com.intellij.modules.platform</depends>
+    <!-- The Agent Sessions tool window hosts each session's terminal (task 4.2, design D11/R7). -->
+    <depends>org.jetbrains.plugins.terminal</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity
             implementation="io.github.zerlok.agentsessionrelay.ui.RelayHoverInstaller"/>
+        <!-- One Relay notification group, reused by ReviewBatchNotifier and AgentSessionNotifier
+             (the id is the canonical source those match against). -->
         <notificationGroup id="Agent Session Relay" displayType="BALLOON"/>
+        <!-- The normalized agent-event webhook on the IDE built-in web server
+             (task 2.2, design D3/D4): POST ${RelayRoute.PREFIX}/sessions/<id>/events/<type>. -->
+        <httpRequestHandler
+            implementation="io.github.zerlok.agentsessionrelay.gateway.RelayHttpRequestHandler"/>
+        <!-- Relay Settings page: start-script configs + per-event sound toggles (task 3.3, design D10).
+             App-level because the registry, environment configs and sound toggles are app-level. -->
+        <applicationConfigurable id="io.github.zerlok.agentsessionrelay.settings"
+                                 parentId="tools"
+                                 displayName="Agent Session Relay"
+                                 instance="io.github.zerlok.agentsessionrelay.ui.RelayConfigurable"/>
         <!-- id must match ReviewBatchToolWindowFactory.TOOL_WINDOW_ID -->
         <toolWindow id="Relay Review" anchor="bottom" icon="AllIcons.General.Balloon"
                     factoryClass="io.github.zerlok.agentsessionrelay.ui.ReviewBatchToolWindowFactory"/>
+        <!-- id must match AgentSessionsToolWindowFactory.TOOL_WINDOW_ID -->
+        <toolWindow id="Agent Sessions" anchor="bottom" icon="AllIcons.Actions.Execute"
+                    factoryClass="io.github.zerlok.agentsessionrelay.ui.AgentSessionsToolWindowFactory"/>
+        <!-- The tool-window side provides the terminal-hosting seam impl (task 4.2); the launch service
+             (task 3.2) depends only on the AgentSessionsTerminalHost interface. -->
+        <projectService serviceInterface="io.github.zerlok.agentsessionrelay.ui.AgentSessionsTerminalHost"
+                        serviceImplementation="io.github.zerlok.agentsessionrelay.ui.AgentSessionsTerminalHostImpl"/>
     </extensions>
 
     <actions>

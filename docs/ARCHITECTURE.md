@@ -324,3 +324,91 @@ user-authored, mutable comment markers, which ride a `GutterIconRenderer` on the
 `com.intellij.collaboration.*` (internal, unstable, not licensed for reuse).
 
 **Study freely:** Plannotator (Apache-2.0/MIT).
+
+---
+
+## 9. Agent event gateway & session registry
+
+The second surface (added by the `agent-event-gateway` change) makes agent sessions
+**launchable and observable** from the IDE: Relay launches a user-authored start script into a
+terminal, injects a tiny env contract, and exposes one normalized event webhook any agent's
+hooks can `curl`. It is **agent-agnostic** — no per-agent code in the plugin. Requirements live
+in the delta specs
+([`agent-event-gateway`](../openspec/changes/agent-event-gateway/specs/agent-event-gateway/spec.md),
+[`session-registry`](../openspec/changes/agent-event-gateway/specs/session-registry/spec.md),
+[`agent-environments`](../openspec/changes/agent-event-gateway/specs/agent-environments/spec.md),
+[`agent-notifications`](../openspec/changes/agent-event-gateway/specs/agent-notifications/spec.md));
+the design decisions (D1–D12) in
+[`agent-event-gateway/design.md`](../openspec/changes/agent-event-gateway/design.md); the
+integration contract in [`ADAPTERS.md`](ADAPTERS.md). This section is the additive technical
+map — it points at those rather than restating them.
+
+### 9.1 Layering — same §3.1 rules, one deliberate deviation
+
+The same one-directional layering holds, with a new `gateway/` package at the transport edge
+(presentation-of-transport: depends on logic, never the reverse) and the same domain →
+storage → logic → view/gateway direction:
+
+```
+  DOMAIN   AgentSession, SessionState, AgentEvent/AgentEventType, NeedsInputKind,
+           EnvironmentConfig, RelayEnvContract/RelayEnvVars, AGENT_EVENT_SCHEMA
+           SessionState.on(event) — the pure state machine (design D5)
+  STORAGE  SessionRegistryStorage (dumb CRUD) + PersistentSessionRegistryStorage,
+           PersistentAgentSettingsStorage (environment configs + sound toggles)
+  LOGIC    SessionRegistryService @Service(APP) — the only API views see; publishes on
+           SessionRegistryListener (@Topic.AppLevel);  AgentSettingsService @Service(APP)
+  GATEWAY  RelayHttpRequestHandler (httpRequestHandler EP) → EventGateway seam → registry
+  VIEW     AgentSessionsToolWindow (project-scoped), AgentSessionNotifier, RelayConfigurable,
+           AgentLaunchService + AgentSessionsTerminalHost (terminal hosting)
+```
+
+**The one deviation from §3.1 (design D9):** the registry store + `@Service` + persistence live
+at **application** level, not project level, because the IDE built-in web server (thus the
+gateway) is application-wide and sessions outlive project open/close. A session is **tagged with
+the project it was launched from** ([`AgentSession.projectBasePath`]); the Agent Sessions tool
+window and the notifier **filter to their own project**. Consequently the topic is
+`@Topic.AppLevel` and is published/subscribed on the **application** message bus. Every other
+§3.1 rule is intact: inert serializable-shaped domain records, dumb storage, logic as the only
+API the view sees, the MessageBus topic as the seam, and views holding **no** storage handle.
+
+### 9.2 The webhook and the state machine
+
+One ingestion shape (single source: [`RelayRoute`] + [`AgentEventType`]):
+`POST /relay/v1/sessions/{id}/events/{type}[?kind=…]` — **the route id is the session
+identity**; bodies carry none. The `RelayHttpRequestHandler` (the `httpRequestHandler`
+extension) is a thin shell: it parses transport primitives, delegates to the transport-agnostic
+`EventGateway` seam (so HTTP can later be swapped without touching consumers), and maps the
+outcome to a status. Unknown `{type}` / unknown id are acknowledged-and-dropped (`2xx`);
+malformed routes get `4xx`; it never throws into the built-in server. The pure
+`SessionState.on(event)` drives the state machine (design D5); `needs.input` clears on the next
+`turn.*`. Table: the `agent-event-gateway` spec.
+
+### 9.3 Persistence — registrations only
+
+Persisted via app-level `PersistentStateComponent`s (flat DTO beans, `@State`; the §5.4 rules
+plus the app-level storage-file choice — **not** `WORKSPACE_FILE`, which is project-scoped):
+**registrations** (id, agent label, environment, project, start-script ref, declared
+capabilities) and the **environment configs + sound toggles**. **Events and live state are
+never persisted** (design D6). A session that survives an IDE restart keeps its injected
+`AGENT_SESSION_RELAY_ID`, so the id must stay valid across restarts; a restored session comes
+back in the **unknown** state and corrects itself on its next event; ended sessions are dropped
+on restore.
+
+### 9.4 Threading
+
+Registry mutations and listener callbacks run on the **EDT** (§5.3). The `RelayHttpRequestHandler`
+runs on a built-in-server thread, so it **hops to the EDT** (`invokeAndWait`, to read back the
+outcome for the HTTP status) before touching the registry. The notifier's per-session state map
+is therefore EDT-confined and unlocked.
+
+### 9.5 Trust boundary
+
+The gateway is the plugin's one **inbound** network surface, so it is where trust is drawn
+(design D8, expanded in [`ADAPTERS.md` §6](ADAPTERS.md)): the built-in server **binds
+loopback**; remote agents reach it only through the user's `ssh` reverse tunnel (its host-key
+verification is the MITM defense); there is **no application-level auth** and no secret on the
+port (the id is a non-secret route key). **Received events are non-executable** — a POST yields
+only a notification or a registry-state change; registry entries carry nothing runnable. The
+**only** executable content is the local Settings start-script configs, exactly like a Run
+Configuration — which is what keeps launch-from-IDE safe. Worst case of a forged event: a
+misleading notification / state dot for that one session.
