@@ -23,10 +23,13 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 /**
  * The per-editor view of the review batch (ARCHITECTURE §3.2, §3.3). It owns one live
  * [RangeHighlighter] per stored comment whose subject points at *this* editor's file, keyed by
- * [CommentId]. The marker carries **no gutter icon** (design D5): it is the invisible live position
- * source — the derived, per-editor projection of the inert domain record and, while the file is open,
- * the source of truth for the comment's position (queried via [currentPositions]) and for the
- * card-hover range highlight below. The stored-comment resting indicator is the always-visible card.
+ * [CommentId]. The marker carries **no gutter icon** (design D5) and no text attributes, but it does
+ * carry a resting gutter bar, so it is two things at once: the live position source — the derived,
+ * per-editor projection of the inert domain record and, while the file is open, the source of truth for
+ * the comment's position (queried via [currentPositions]) and for the card-hover range highlight below
+ * — and the at-rest gutter signal that these lines carry a comment. The stored comment's resting
+ * indicators are therefore the always-visible card and that gutter bar; the code-area wash stays
+ * hover-only.
  *
  * The store is the single source of truth: the overlay never keeps its own comment list. It seeds
  * from [ReviewBatchService.comments] on creation and, on every [ReviewBatchListener] event,
@@ -180,10 +183,14 @@ class EditorReviewOverlay(
             null,
             HighlighterTargetArea.LINES_IN_RANGE,
         )
-        // No gutter icon (design D5): the marker is now purely the invisible live position source (and
-        // the source for the card-hover range highlight). The stored-comment resting indicator is the
-        // always-visible card; the range is revealed on card hover. `StoredCommentGutterIconRenderer`
-        // is kept unwired in the tree for the deferred hide-comments change to re-attach here.
+        // Still no gutter *icon* (design D5) and still no text attributes, so nothing washes the code at
+        // rest. What the marker does carry now is the resting gutter bar: it is both the invisible live
+        // position source (and the source for the card-hover range highlight) AND the at-rest "these
+        // lines have a comment" signal. Riding the marker the overlay already keeps live means the bar
+        // drifts with in-IDE edits for free and needs no reconcile path of its own. The accent is the
+        // card's, so a card and its lines read as one object. `StoredCommentGutterIconRenderer` is kept
+        // unwired in the tree for the deferred hide-comments change to re-attach here.
+        highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RangeHighlight.STORED_COMMENT_ACCENT)
         markers[comment.id] = highlighter
         markerSubjects[comment.id] = comment.subject
     }

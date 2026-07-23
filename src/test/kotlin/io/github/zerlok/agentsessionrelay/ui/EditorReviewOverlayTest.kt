@@ -13,6 +13,8 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
+import java.awt.Rectangle
+import java.awt.image.BufferedImage
 
 /**
  * Real-platform test of the one view-side piece the whole "export reflects in-IDE edits" story rests
@@ -150,6 +152,53 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         val markup = DocumentMarkupModel.forDocument(myFixture.editor.document, project, true)
         val storedIcons = markup.allHighlighters.count { it.gutterIconRenderer is StoredCommentGutterIconRenderer }
         assertEquals(0, storedIcons)
+    }
+
+    /**
+     * The other half of D5: the same iconless marker now carries the RESTING gutter bar, painted in the
+     * accent the card's leading edge wears — so "this card" and "these lines" are literally one color.
+     * The renderer is painted onto an offscreen image rather than merely asserted non-null, so a
+     * regression that attaches a bar in some other color (e.g. the pale draft wash, invisible as a
+     * stripe) fails here too.
+     */
+    fun `test a stored comment marker carries a resting gutter bar in the accent color`() {
+        service.addComment(Subject.LineRange(url, 1, 2), "bar me")
+
+        val markup = DocumentMarkupModel.forDocument(myFixture.editor.document, project, true)
+        val bar = markup.allHighlighters.single { it.lineMarkerRenderer != null }
+        assertEquals(myFixture.editor.document.getLineStartOffset(1), bar.startOffset)
+        assertEquals(myFixture.editor.document.getLineEndOffset(2), bar.endOffset)
+        // Still no resting wash over the code area: text attributes stay null (that stays hover-only).
+        assertNull(bar.getTextAttributes(myFixture.editor.colorsScheme))
+
+        val image = BufferedImage(8, 4, BufferedImage.TYPE_INT_RGB)
+        val g = image.createGraphics()
+        try {
+            bar.lineMarkerRenderer!!.paint(myFixture.editor, g, Rectangle(0, 0, 8, 4))
+        } finally {
+            g.dispose()
+        }
+        assertEquals(RangeHighlight.STORED_COMMENT_ACCENT.rgb, image.getRGB(0, 0))
+    }
+
+    /**
+     * The resting bar rides the live position marker, so it tracks in-IDE edits for free — it marks the
+     * same lines the card's hover highlight would. Asserted against the marker the bar is attached to,
+     * so a future "reconcile the bar separately" regression (a second, stale highlighter) fails here.
+     */
+    fun `test the resting gutter bar follows an in-IDE edit`() {
+        val comment = service.addComment(Subject.LineRange(url, 1, 2), "shift me")
+        val markup = DocumentMarkupModel.forDocument(myFixture.editor.document, project, true)
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.insertString(0, "top0\ntop1\n")
+        }
+
+        val bar = markup.allHighlighters.single { it.lineMarkerRenderer != null }
+        val document = myFixture.editor.document
+        assertEquals(Subject.LineRange(url, 3, 4), overlay.currentPositions()[comment.id])
+        assertEquals(3, document.getLineNumber(bar.startOffset))
+        assertEquals(4, document.getLineNumber(bar.endOffset))
     }
 
     /**
