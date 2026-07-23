@@ -8,11 +8,10 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 /**
  * The editor context-menu (right-click) entry point to author a review comment (design D2),
  * registered under the `EditorPopupMenu` group in `plugin.xml`. It mirrors the gutter "+" affordance:
- * the target range is the current selection when one exists, otherwise the single caret line — the
- * same rule, via the shared [CommentDraftController.rangeFor] — and it opens the same inline box
- * through [CommentDraftController.open]. Passing the *caret* line as the "clicked" line makes a
- * no-selection right-click identical to a gutter click on the caret line, so both entry points stay
- * in parity (D2).
+ * the target range comes from the one shared rule, [CommentDraftController.rangeFor], and it opens
+ * the same inline box through [CommentDraftController.open]. Passing the *caret* line as the
+ * "clicked" line is what keeps the two entry points in parity (D2) — a caret always rests at one end
+ * of its own selection, so it satisfies that rule's containment test whenever a selection exists.
  *
  * The action's text/description are declared in `plugin.xml` (the canonical place for a registered
  * action), so this class holds only the behavior.
