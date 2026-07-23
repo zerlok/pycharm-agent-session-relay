@@ -27,6 +27,12 @@ dependencies {
         pluginVerifier()
         zipSigner()
         testFramework(TestFrameworkType.Platform)
+
+        // The Agent Sessions tool window hosts each session's terminal via the platform Terminal plugin
+        // (task 4.2, design D11/R7). Declaring the bundled plugin puts its API
+        // (org.jetbrains.plugins.terminal.*) on the compile + test classpath and satisfies the matching
+        // <depends>org.jetbrains.plugins.terminal</depends> in plugin.xml at (test) runtime.
+        bundledPlugin("org.jetbrains.plugins.terminal")
     }
 
     // JUnit4 for plugin unit tests. The Platform test framework runs on the JUnit4 runner but does
