@@ -13,8 +13,7 @@ current selection **only when the target line falls within the selection's line 
 SHALL be that single line alone, and the selection SHALL be ignored. When the selection ends exactly
 at the start of a line, that trailing line SHALL NOT be included in the resulting range — but it
 SHALL still count as part of the span tested for containment, so a target line resting there resolves
-to the selection. A soft-wrapped target line SHALL be highlighted across all of its visual rows, not
-only its first.
+to the selection.
 
 #### Scenario: Comment on a single clicked line
 
@@ -51,11 +50,6 @@ only its first.
 - **WHEN** the selection ends exactly at the start offset of line 16 (so the trimmed range is 10–15)
   and the target line is 16
 - **THEN** the range resolves to the selection's trimmed range 10–15 rather than to line 16 alone
-
-#### Scenario: A soft-wrapped target line is highlighted end to end
-
-- **WHEN** the target line is soft-wrapped across several visual rows and the comment box opens
-- **THEN** the highlight covers every visual row of that line, not only its first row
 
 #### Scenario: Box width is capped at the right margin
 
@@ -112,13 +106,13 @@ the document bounds. A press that begins on an edge SHALL claim the gesture so t
 also start a text selection.
 
 The edges SHALL be positioned by visual-row geometry: the top edge at the top of the range's first
-visual row and the bottom edge at the bottom of the range's **last** visual row, so a soft-wrapped
-logical line is treated as one line occupying all of its visual rows. The same geometry SHALL govern
-edge hit-testing and the mapping from a drag position back to a line, so that pointing anywhere in any
-visual row of a soft-wrapped line resolves to that one logical line and releasing on a row makes that
-row's line the range's new boundary. Both edges SHALL be drawn inside the highlighted range rather
-than centred on its boundary, so the bottom edge remains visible while the comment box is open
-directly beneath it.
+visual row and the bottom edge at the bottom of the range's **last** visual row, so that the two
+edges bracket every visual row of a soft-wrapped boundary line rather than its first row alone. The
+same geometry SHALL govern edge hit-testing and the mapping from a drag position back to a line, so
+that pointing anywhere in any visual row of a soft-wrapped line resolves to that one logical line and
+releasing on a row makes that row's line the range's new boundary. Both edges SHALL be drawn inside
+the highlighted range rather than centred on its boundary, so the bottom edge remains visible while
+the comment box is open directly beneath it.
 
 #### Scenario: Grow the range from the bottom edge
 

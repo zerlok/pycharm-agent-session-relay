@@ -146,13 +146,32 @@ is drawn at the true bottom of a wrapped line.
   `2 × GRAB_ZONE_DP`. Left as-is for now — it is the behavior users already have, and whether the
   band feels big enough is a visual judgement (see Open Questions).
 
-**The wash and the gutter bar are assumed already wrap-correct and are not touched.** The wash is a
-`HighlighterTargetArea.LINES_IN_RANGE` background attribute (`CommentDraft.kt:190`) and the gutter bar
-is a `LineMarkerRenderer` given a platform-computed rectangle (`RangeHighlight.kt:42-45`); both are
-expressed in logical lines and expanded to pixels by the platform, which knows about soft wraps. The
-belief is therefore that the defect is confined to the `CustomHighlighterRenderer` edges and the
-hit-testing. This assumption cannot be verified without a display and is recorded as an open question
-rather than claimed as verified.
+**The wash and the gutter bar are not touched, and this change therefore asserts nothing about them.**
+The wash is a `HighlighterTargetArea.LINES_IN_RANGE` background attribute (`CommentDraft.kt:190`) and
+the gutter bar is a `LineMarkerRenderer` given a platform-computed rectangle (`RangeHighlight.kt:42-45`);
+both are expressed in logical lines and expanded to pixels by the platform. Nothing in this change's
+diff reaches either of them — the diff touches only `topEdgeY` / `bottomEdgeY` / `lineAtY` /
+`paintEdges` / `paintEdge` / `onMouseDragged` and `rangeFor`. So the wash's wrap behavior is
+*inherited platform behavior*, not behavior this change delivers, and the delta spec must not phrase
+it as a `SHALL` (review finding M1).
+
+Static reading of the 2024.2.5 bytecode corroborates the assumption without settling it.
+`RangeHighlighterImpl.getAffectedAreaEndOffset()` expands a `LINES_IN_RANGE` highlighter to
+`min(getLineEndOffset(getLineNumber(endOffset)) + 1, textLength)`, and
+`IterationState.getAlignedStartOffset/getAlignedEndOffset` feed exactly those whole-line offsets into
+the attribute sweep; `EditorPainter$Session.paintBackground()` then walks a `VisualLinesIterator` row
+by row and paints each row's fragments from that offset-keyed attribute state. Every visual row of the
+logical line is therefore inside the highlighter's offset span and gets the background attribute. What
+this does *not* establish is the pixel residue — the fill past the last glyph of a wrapped row, and
+the gutter bar's rectangle, are painting decisions no static read settles. Those stay open questions.
+
+- _Alternative — keep asserting "a soft-wrapped target line SHALL be highlighted across all of its
+  visual rows" in the delta spec (as originally written):_ it commits the capability to behavior no
+  line of this diff produces, and it contradicts this change's own open question listing the same
+  claim as unverified. A spec is the record of what a change is accountable for; inheriting a platform
+  behavior is not delivering it. Rejected — the requirement was narrowed to the edges, their
+  hit-testing and the drag mapping, which is exactly what the diff controls. If the wash ever needs a
+  normative guarantee, it belongs to a change that owns the wash and can verify it in a running IDE.
 
 ## Risks / Trade-offs
 
@@ -173,9 +192,13 @@ rather than claimed as verified.
 _None of these can be settled here — this machine has no display and `runIde` is impossible. Each
 needs a visual check in a running IDE._
 
-- Does the `LINES_IN_RANGE` wash actually cover every visual row of a soft-wrapped line, as assumed
-  above? If not, the wash needs its own treatment and this change's scope grows.
+- Does the `LINES_IN_RANGE` wash actually *look* continuous over every visual row of a soft-wrapped
+  line? The offset span and the row-by-row background sweep are confirmed statically above, so the
+  remaining risk is pixel-level (trailing fill past the last glyph of a wrapped row). If it reads as
+  banded, the wash needs its own treatment in a change that owns it — this one deliberately makes no
+  claim about it.
 - Does the gutter bar (`RangeHighlight.gutterBar`) likewise span all visual rows of a wrapped line?
+  Same status: not asserted by this change's spec either way.
 - With the bottom edge drawn inside the range, is it visibly separated from the box's own 1px top
   border (`JBUI.Borders.customLine(JBColor.border(), 1)`, `CommentDraft.kt:502`), or do the two lines
   read as one thick rule? If the latter, consider a 1px gap or dropping the box's top border line.

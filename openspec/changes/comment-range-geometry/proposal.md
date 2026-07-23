@@ -46,9 +46,12 @@ _None._
 ### Modified Capabilities
 
 - `review-annotation`: the target range rule gains a containment condition (the selection wins only
-  when the clicked line is inside it); the range highlight and its draggable edges are specified in
-  visual rows so soft-wrapped lines are covered end to end; the bottom edge remains visible while the
-  comment box is open beneath it.
+  when the clicked line is inside it); the range's **draggable edges** — their position, their
+  hit-testing and the drag-to-line mapping — are specified in visual rows, so a soft-wrapped boundary
+  line is bracketed by the edges as one line rather than at its first row; the bottom edge remains
+  visible while the comment box is open beneath it. The *wash* between the edges is platform-drawn
+  from a `LINES_IN_RANGE` highlighter this change does not touch, so no requirement about its
+  wrap coverage is asserted here (design.md, "The wash and the gutter bar…").
 
 ## Impact
 
