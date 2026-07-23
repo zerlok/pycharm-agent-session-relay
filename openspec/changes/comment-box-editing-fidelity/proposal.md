@@ -25,14 +25,13 @@ hosting are still unfixed:
 ## What Changes
 
 - Scope **undo/redo** (and every other file-editor-scoped action) to the box while its body is
-  focused: the box's content panel becomes a `UiDataProvider` that masks
-  `PlatformCoreDataKeys.FILE_EDITOR`, so the platform's own `BasicUiDataRule` re-derives a
-  `TextEditor` from the box's inner editor instead of handing back the host file's editor. Ctrl+Z in
-  the box undoes the comment body and never the code.
+  focused: the box's content panel becomes a `UiDataProvider` that supplies
+  `PlatformCoreDataKeys.FILE_EDITOR` as the box's *own* `TextEditor`, shadowing the host file's editor
+  for anything below the panel. Ctrl+Z in the box undoes the comment body and never the code.
 - Make the box **re-measure immediately** when its body changes: a once-per-draft `DocumentListener`
-  on the retained body document revalidates the live box panel and calls `Inlay.update()`, so the box
-  grows/shrinks on the same edit — including growth caused by soft-wrapping a long line, where no
-  newline is typed.
+  on the retained body document revalidates the live box panel, so the platform's embedded-component
+  renderer re-measures and the box grows/shrinks on the same edit — including growth caused by
+  soft-wrapping a long line, where no newline is typed.
 
 ## Capabilities
 
@@ -54,9 +53,19 @@ _None._
   override on the box content panel built by `buildPanel`, plus a document listener and a retained
   handle on the current box panel used by `showBox`/`hideBox`. Presentation layer only, per
   `docs/ARCHITECTURE.md`; no domain, storage, logic, export, or delivery change.
-- Dependencies: none new. `UiDataProvider` / `DataSink` and `Inlay.update()` all ship with the
-  2024.2.5 platform already on the classpath.
+- Dependencies: none new. `UiDataProvider` / `DataSink` and `TextEditorProvider.getTextEditor` all
+  ship with the 2024.2.5 platform already on the classpath.
 - Explicitly **out of scope** (sibling changes land these in parallel): `CommentDraftController`, the
   wash / edge-drag geometry, `StoredCommentCard`, `EditorReviewOverlay`.
-- Tests: no unit test asserts the box's undo scope or measure timing — neither is reachable from the
-  headless harness. The compile gate plus a running-IDE pass are the verification.
+- Tests: `src/test/kotlin/io/github/zerlok/agentsessionrelay/ui/CommentDraftTest.kt` (new) opens a
+  real draft over a `BasePlatformTestCase` editor fixture and asserts the parts of both fixes that a
+  headless harness can reach: **what the box panel contributes to the action system** (`FILE_EDITOR` =
+  the wrapper around the *body's* editor and nothing else, on the first box and on the panel rebuilt
+  by an edge-drag, plus the editor-less branch's mask), and **what a body edit does to the box** (it
+  revalidates the *current* box panel — the panel is re-validated between the edit and the pump, so
+  only the draft's own deferred call can invalidate it — and that deferred call drops harmlessly when
+  the box was closed in between). What it does **not** prove, and must not claim to: end-to-end
+  `DataContext` resolution — that the panel's `FILE_EDITOR` really wins the walk, and that undo then
+  reaches the body's document — and that the box actually grows, since `revalidate()` only *schedules*
+  the renderer layout pass and nothing lays components out without a display. Those stay running-IDE
+  checks in tasks 3.3/4.7 and design.md "## Open Questions".
