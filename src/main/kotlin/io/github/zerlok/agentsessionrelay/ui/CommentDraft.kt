@@ -4,13 +4,18 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CustomShortcutSet
+import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.KeyboardShortcut
+import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
+import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
 import com.intellij.openapi.editor.markup.CustomHighlighterRenderer
@@ -19,6 +24,8 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.fileTypes.FileTypes
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
@@ -129,6 +136,10 @@ class CommentDraft private constructor(
     private val resizeCursor: Cursor = Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
 
     private var inlay: Inlay<*>? = null
+
+    // The live box panel handed to the inlay. Held only so the document listener can revalidate the
+    // *current* one: unlike [bodyField], the panel is a new instance after every edge-drag rebuild.
+    private var boxPanel: JComponent? = null
     private var shortcutsRegistered = false
     private var hoveredEdge: Edge? = null
     private var draggingEdge: Edge? = null
@@ -136,6 +147,40 @@ class CommentDraft private constructor(
     init {
         // Edit mode: pre-fill the body with the comment's current text so the user revises in place.
         if (editing != null) bodyField.text = editing.body
+        // Re-measure the box on every body edit (D2-R). Registered here — once per draft, on the
+        // *retained* field's document, parented to the draft — for the same reason [registerShortcuts]
+        // registers on the wrapper: showBox/hideBox tear down and rebuild the panel and the inner
+        // editor on each edge-drag, so anything hung off those would need re-registering per rebuild.
+        // Parenting to the draft makes the draft a Disposer parent — every teardown must therefore go
+        // through `Disposer.dispose(draft)` (see [create]), never a bare `dispose()`.
+        bodyField.document.addDocumentListener(
+            object : DocumentListener {
+                override fun documentChanged(event: DocumentEvent) = scheduleRemeasure()
+            },
+            this,
+        )
+    }
+
+    /**
+     * Applies the body's new height to the box on the edit that caused it. `revalidate()` is the whole
+     * mechanism (D2-R): it schedules the layout pass that reaches
+     * `EditorEmbeddedComponentManager$MyRenderer.doLayout`/`validate` →
+     * `synchronizeBoundsWithInlay`, which reads the panel's *preferred* height, `setBounds`es the
+     * renderer and calls [Inlay.update] itself. Calling [Inlay.update] from here instead would be
+     * inert — `MyRenderer.calcHeightInPixels` reports the renderer's *current* Swing height, so before
+     * that layout pass there is nothing new to report. [EditorTextField] does not revalidate on
+     * `documentChanged`, which is why the pass otherwise waits for an unrelated layout and the box
+     * reads as "resizing after I stop typing". Deferred to the EDT queue so the inner editor has
+     * finished recomputing soft wraps first; that is what makes a long line that *wraps* (no newline
+     * typed) grow the box too. The validity guard mirrors [showBox]'s deferred focus request — the
+     * draft can be submitted, cancelled or drag-hidden in between.
+     */
+    private fun scheduleRemeasure() {
+        ApplicationManager.getApplication().invokeLater {
+            if (inlay?.isValid != true) return@invokeLater
+            boxPanel?.revalidate()
+            boxPanel?.repaint()
+        }
     }
 
     private fun doSubmit() {
@@ -363,6 +408,7 @@ class CommentDraft private constructor(
         val newInlay = EditorEmbeddedComponentManager.getInstance().addComponent(editor, panel, properties)
             ?: return false
         inlay = newInlay
+        boxPanel = panel
 
         addButton.addActionListener { doSubmit() }
         cancelButton.addActionListener { onClose() }
@@ -391,6 +437,7 @@ class CommentDraft private constructor(
     private fun hideBox() {
         inlay?.let { if (it.isValid) Disposer.dispose(it) }
         inlay = null
+        boxPanel = null
     }
 
     override fun dispose() {
@@ -466,7 +513,10 @@ class CommentDraft private constructor(
 
             val draft = CommentDraft(editor, start, end, editing, onClose)
             if (!draft.showBox()) {
-                draft.dispose()
+                // Through the Disposer, never `draft.dispose()`: the draft's `init` parents a document
+                // listener to it, which `DocumentImpl` registers as a Disposer *child*, so a direct
+                // call would run the draft's own cleanup and leave both nodes in the tree forever.
+                Disposer.dispose(draft)
                 return null
             }
             return draft
@@ -488,11 +538,37 @@ class CommentDraft private constructor(
             // box still grows *taller* with the body (height stays super-driven); only width is pinned.
             val cap = InlineWidth.rightMarginPx(editor)
             val baseWidth = InlineWidth.baseWidthPx(editor)
-            val content = object : JPanel(BorderLayout(0, JBUI.scale(6))) {
+            val content = object : JPanel(BorderLayout(0, JBUI.scale(6))), UiDataProvider {
                 override fun getPreferredSize(): Dimension {
                     val size = super.getPreferredSize()
                     size.width = baseWidth
                     return size
+                }
+
+                /**
+                 * Scopes file-editor actions — undo/redo above all — to the box (D1-R). The box is a
+                 * block inlay *inside* the host editor's content component, so the action system's
+                 * walk up the Swing hierarchy reaches the host file's `EditorCompositePanel` and
+                 * resolves [PlatformCoreDataKeys.FILE_EDITOR] to the *source file's* editor — which is
+                 * exactly what `UndoRedoAction` undoes against, so Ctrl+Z while typing a comment
+                 * silently edited the user's code. This panel is the nearer provider, so naming the
+                 * box's *own* [TextEditor] here shadows the host file's — and that wrapper is what the
+                 * platform itself derives for an [EditorTextField] in a dialog, where in-box undo
+                 * already works. `EDITOR` is deliberately not set ([EditorTextField] already supplies
+                 * it), and the body field is never marked supplementary: that flag claims the body is
+                 * not a real editing surface, which is false here.
+                 *
+                 * The editor-less branch masks rather than falling through to the host file, but it is
+                 * a tripwire on an invariant, not a fallback — a null key is *not* safe either (design
+                 * D1-R / Risks: it routes undo to the project's global stack). The action system
+                 * snapshots from the focus owner upward, so in practice focus is inside the box and
+                 * the inner editor exists — but any caller may hand this panel to `DataManager`
+                 * directly, so the branch is kept.
+                 */
+                override fun uiDataSnapshot(sink: DataSink) {
+                    val inner = bodyField.editor
+                    if (inner == null) sink.setNull(PlatformCoreDataKeys.FILE_EDITOR)
+                    else sink.set(PlatformCoreDataKeys.FILE_EDITOR, TextEditorProvider.getInstance().getTextEditor(inner))
                 }
             }.apply {
                 isOpaque = true
