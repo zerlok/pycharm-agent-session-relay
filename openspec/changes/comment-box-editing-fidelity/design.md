@@ -140,8 +140,9 @@ reads exactly that key — undoes the *comment body's* document. This is the sam
 `BasicUiDataRule` produces for an `EditorTextField` in a dialog, where undo already works today; the
 only reason the platform cannot produce it here is that the box has a `FILE_EDITOR`-providing Swing
 ancestor and a mask cannot be lifted (Context: `MySink.set` drops a rule's write when any cached
-layer already holds an entry). The `else` branch is unreachable in practice — the snapshot is only
-taken while focus is inside the box, which implies the inner editor exists. It is `setNull` rather
+layer already holds an entry). The `else` branch is unreachable in practice — `PreCachedDataContext`
+snapshots from the focus owner upward (Context), so the box panel is normally reached only while
+focus is inside it, which implies the inner editor exists. It is `setNull` rather
 than a fall-through because handing back the *host file's* editor is the worse of the two bad
 outcomes; but be clear that it is not a safe branch either — a null `FILE_EDITOR` routes undo to the
 project's global stack (see Risks). It is a tripwire on an invariant, not a fallback, and if it ever
