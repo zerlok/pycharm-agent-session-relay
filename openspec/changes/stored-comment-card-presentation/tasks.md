@@ -129,3 +129,97 @@
       IDENTICAL at rest and on hover (no code reflow when the icons appear); a click on the card's
       padding or header does not start a text selection in the editor beneath; CPU stays idle while a
       card is on screen and while the editor is resized (the layout feedback loop must not return).
+
+## 7. Review revision (PR #9, 2026-08-01) — drop the card bar, restyle the box
+
+Answers the three review notes; see design.md "Decisions — review revision" R1-R5. Tasks 1.1, 2.3, 2.4
+and 5.3's accent assertion are **superseded** by 7.1-7.3 — they stay checked as the record of what the
+first round shipped, and are not re-opened.
+
+- [x] 7.1 New `src/main/kotlin/io/github/zerlok/agentsessionrelay/ui/RelayStyle.kt` (R4): an internal
+      object holding every Relay color — `ACCENT` (the line/bar blue), `ACCENT_FILL` + `ACCENT_FILL_TEXT`
+      (R5: the filled-button variant and its label color, a different luminance for a reason recorded in
+      the KDoc), `RANGE_WASH`, `EDGE_IDLE`, and a `surface()` for the card/box fill. Colors and the fill
+      only — no components, no borders, no layout.
+- [x] 7.2 Retire the duplicate constants into `RelayStyle`, leaving no second declaration:
+      `RangeHighlight.STORED_COMMENT_ACCENT` (`RangeHighlight.kt:47`) and `CommentDraft`'s private
+      `EDGE_ACTIVE` (`CommentDraft.kt:429`) collapse into `RelayStyle.ACCENT`;
+      `CommentDraft.RANGE_BACKGROUND` (`CommentDraft.kt:423`) becomes `RelayStyle.RANGE_WASH`, so
+      `EditorReviewOverlay`'s hover call (`EditorReviewOverlay.kt:269`) stops reaching into `CommentDraft`
+      for a color. Update the KDoc in `RangeHighlight.kt:13-20` and `:37-46` that explains the old split.
+- [x] 7.3 In `StoredCommentCard.kt` (R1), remove the left accent line from the card's border compound
+      (`StoredCommentCard.kt:196-204`) and delete `ACCENT_WIDTH_DP` (`:53`). The border becomes
+      `customLine(JBColor.border(), 1)` + `empty(8, 12)`. Leave `contentWidth`, `getPreferredSize`,
+      `doLayout`, the header row and the width pin exactly as they are — the insets simply become
+      symmetric. Update the class KDoc (`:20-48`), which currently describes the accent frame.
+- [x] 7.4 In `CommentDraft.buildPanel` (`CommentDraft.kt:497-502`, R2), replace
+      `background = editor.colorsScheme.defaultBackground` with `RelayStyle.surface()` — the same value
+      the card uses, from the same source. Keep the existing 1px outline + `empty(8, 12)` padding, and add
+      no accent edge. Do NOT touch the panel's `getPreferredSize` width pin or `InlineWidth.capWidth`.
+- [x] 7.5 Frame the body field in the accent (R2): `bodyField`'s border (`CommentDraft.kt:124-127`)
+      keeps its `empty(3, 5)` inner padding but its `customLine(JBColor.border(), 1)` becomes
+      `customLine(RelayStyle.ACCENT, 1)`.
+- [x] 7.6 Rename the primary action (R3): `JButton(if (editing != null) "Save" else "Comment")`
+      (`CommentDraft.kt:349`) becomes an unconditional `JButton("Comment")`. Update the comment above it
+      (`:346-348`), which explains the two-label rule. Nothing else about `doSubmit`/`onClose` changes.
+- [x] 7.7 Style the two buttons (R3): set `isOpaque = false` on **both** so neither paints Swing's
+      default `Button.background` rectangle behind `DarculaButtonUI`'s rounded shape; on the primary
+      only, `putClientProperty("JButton.backgroundColor", RelayStyle.ACCENT_FILL)` and
+      `putClientProperty("JButton.textColor", RelayStyle.ACCENT_FILL_TEXT)` — the two properties
+      `DarculaButtonUI.getBackground`/`getButtonTextColor` read first (verified against the disassembled
+      2024.2.5 platform). Do not rely on `isDefaultButton()`: an inlay has no root pane.
+- [x] 7.8 Update `StoredCommentCardTest.kt` (R1): replace
+      `test the card carries a leading accent line in the shared stored-comment accent`
+      (`StoredCommentCardTest.kt:65-79`) with the inverse — leading and trailing insets are **equal**, and
+      no pixel of `RelayStyle.ACCENT` is painted anywhere in the card's border. Keep every other test as
+      is; the fill, header, height and width assertions are unaffected.
+- [x] 7.9 Update `EditorReviewOverlayTest.kt:181` to assert against `RelayStyle.ACCENT` (same value, new
+      home) so the gutter-bar color test keeps failing on a pale-wash regression.
+- [x] 7.10 New `src/test/kotlin/io/github/zerlok/agentsessionrelay/ui/CommentDraftPresentationTest.kt`
+      covering R2/R3 off a real box built over the editor fixture: the box panel's fill equals the card's
+      and is not `editor.colorsScheme.defaultBackground`; its border insets are symmetric (no accent
+      edge); the body field's border paints `RelayStyle.ACCENT`; the primary button reads "Comment" in
+      BOTH the new and the `openForEdit` case; both buttons are non-opaque; and the primary carries the
+      two client properties with the fill/label colors. Mutation-check each assertion.
+- [x] 7.11 Compile + test gate per the project env (`./gradlew compileKotlin --offline`, then
+      `./gradlew test`), not run in parallel. (Both green: 95 tests, 0 failures — 89 before, +6 for the
+      box's presentation, with the card's accent test replaced rather than added to. Every new assertion
+      was mutation-checked and fails on exactly its own mutation: reverting the box fill to
+      `editor.colorsScheme.defaultBackground`, the field frame to `JBColor.border()`, the label to the
+      two-mode `if (editing != null) "Save"`, `isOpaque = false`, and the two client properties each fail
+      one test and only that one; re-adding the card's accent line fails both no-accent tests — the
+      card's own and the box-matches-the-card frame comparison.)
+- [ ] 7.12 Running-IDE checks added by this revision (fold into 6.2): the accent fill's label legibility
+      in light/Darcula/High Contrast; whether Cancel still reads as a button once non-opaque; and whether
+      card→box across Edit reads as one object (same fill, frame, left edge, no width/padding jump).
+
+## 8. Visual round 2 (PR #9 screenshot, 2026-08-01)
+
+Answers the three spots marked on the screenshot plus one defect found while measuring it; see design.md
+"Decisions — visual round 2" R6-R8. Each was measured in pixels off the review screenshot and
+traced to a mechanism in the disassembled platform before any code was touched.
+
+- [x] 8.1 (R6) In `CommentDraft`'s `bodyField` (`CommentDraft.kt:117-130`), add `isOpaque = true` and
+      `background = editor.colorsScheme.defaultBackground`. `EditorTextField` extends `NonOpaquePanel`,
+      so the `empty(3, 5)` padding inside the accent line was painting nothing and the box's surface
+      showed through as a 5px band between the frame and the text. Keep the border composition as is —
+      the frame must stay at the component's edge so it spans the box's full content width.
+- [x] 8.2 (R7) Add `putClientProperty("JButton.borderColor", RelayStyle.ACCENT_FILL)` to `primaryButton`
+      (`CommentDraft.kt`), beside the existing fill/text properties. `DarculaButtonPainter.getBorderPaint`
+      reads that property as a `Color` and returns it for an enabled button ahead of its
+      default/plain-button branches, so the gray ring around the accent fill becomes the fill.
+- [x] 8.3 (R8) In `buildPanel`, change the action row's `FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)`
+      to an `hgap` of 0 and put the 8dp gap *between* the two buttons instead (a horizontal strut).
+      `FlowLayout` reserves its `hgap` at both ends of the row, which is what pushed the row 8px left of
+      the field's trailing edge. Do not try to compensate for the remaining ~4px: that is the platform's
+      own focus-ring inset inside the button's bounds.
+- [x] 8.4 Extend `CommentDraftPresentationTest`: the body field is opaque and its background equals the
+      editor's default background (so no box fill can show inside the frame); the primary action carries
+      the border-color property with the fill color; and the action row's trailing edge equals the body
+      field's trailing edge. Mutation-check each.
+- [x] 8.5 Compile + test gate (`./gradlew compileKotlin --offline`, then `./gradlew test`), not in parallel.
+      (Green: 98 tests, 0 failures — 95 before, +3 for R6/R7/R8. Each mutation-checked and failing on
+      exactly its own mutation: dropping `isOpaque`, dropping the border property, and restoring the
+      row's non-zero `hgap` each fail one test and only that one.)
+- [ ] 8.6 Running-IDE re-check of the same screenshot: no band inside the field's frame, no gray ring on
+      the primary action, and the action row flush with the field — in both a light and a dark theme.

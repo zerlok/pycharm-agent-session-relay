@@ -6,9 +6,12 @@ The plugin SHALL render each stored comment as an always-expanded, read-only inl
 under its commented line range in every open editor showing that file, displaying the comment body.
 
 The card SHALL be visually distinct from the code it floats over: it SHALL be filled with a
-background other than the editor's own text background, and SHALL carry an accent frame — an accent
-bar along its leading (left) edge — in the same accent color used for the stored comment's gutter
-signal, so a card and the lines it annotates read as one object.
+background other than the editor's own text background, and SHALL be framed by a single-weight
+outline on every edge, so it reads as a UI surface over code rather than as more code.
+
+The card SHALL NOT carry an accent bar or any other accent-colored edge of its own. A commented
+range SHALL be marked in the accent color in exactly one place — the gutter bar over its lines — so
+that a card and the lines it annotates are tied by one mark rather than by two parallel lines.
 
 Each card SHALL carry an always-present header row above its body, showing an author label and
 hosting the card's Edit and Delete affordances. The author label SHALL be a presentation-level value
@@ -33,9 +36,14 @@ while that comment is open in an edit box.
 #### Scenario: Card is distinguishable from surrounding code
 
 - **WHEN** a stored comment's card is rendered inside a large file
-- **THEN** the card is filled with a background other than the editor's text background and carries an
-  accent bar on its leading edge, so it reads as a message about the lines above it rather than as
-  more text in the file
+- **THEN** the card is filled with a background other than the editor's text background and is framed
+  by an outline, so it reads as a message about the lines above it rather than as more text in the file
+
+#### Scenario: One accent mark per commented range
+
+- **WHEN** a stored comment's card is rendered under its commented lines
+- **THEN** the accent color appears only in the gutter bar over those lines, and the card's own frame
+  carries no accent-colored edge
 
 #### Scenario: Header row is always present
 
