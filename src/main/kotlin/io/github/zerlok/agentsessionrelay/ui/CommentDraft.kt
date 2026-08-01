@@ -10,7 +10,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
-import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
 import com.intellij.openapi.editor.markup.CustomHighlighterRenderer
@@ -36,7 +36,6 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
-import java.awt.Point
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -88,7 +87,7 @@ class CommentDraft private constructor(
     // Paints the brighter/thicker top and bottom edge lines that signal draggability (D4). It reads
     // the current start/end and the hovered/dragged edge off the draft, so a bare repaint reflects
     // both a live resize and a hover change without touching the highlighter.
-    private val edgeRenderer = CustomHighlighterRenderer { ed, _, g -> paintEdges(ed, g) }
+    private val edgeRenderer = CustomHighlighterRenderer { _, _, g -> paintEdges(g) }
 
     // Live wash over the commented lines; recreated on each range change (positions can't be moved
     // on an existing RangeHighlighter). This is the VIEW's live position marker (ARCHITECTURE §3.2).
@@ -219,11 +218,26 @@ class CommentDraft private constructor(
 
     internal fun handles(editor: Editor): Boolean = this.editor === editor
 
-    /** Editor-Y of the top border of the range (top of [start]) in editor coordinates. */
-    private fun topEdgeY(): Int = editor.logicalPositionToXY(LogicalPosition(start, 0)).y
+    /**
+     * Editor-Y of the top border of the range: the top of [start]'s **first** visual row.
+     *
+     * Every Y here is derived from visual rows, not logical lines, because a soft-wrapped logical
+     * line is one line occupying several rows — logical math anchors the range to its first row only
+     * and leaves painting, hit-testing and the drag mapping disagreeing about where the line ends. A
+     * line-start offset is never a soft-wrap position, so its visual line *is* the range's first row.
+     */
+    private fun topEdgeY(): Int =
+        editor.visualLineToY(editor.offsetToVisualLine(editor.document.getLineStartOffset(start), false))
 
-    /** Editor-Y of the bottom border of the range (bottom of [end]) in editor coordinates. */
-    private fun bottomEdgeY(): Int = editor.logicalPositionToXY(LogicalPosition(end, 0)).y + editor.lineHeight
+    /**
+     * Editor-Y of the bottom border of the range: the bottom of [end]'s **last** visual row (see
+     * [topEdgeY] for why visual rows). The line-*end* offset taken with `beforeSoftWrap = false`
+     * resolves to that last row, and `visualLineToYRange` reports the row's own extent — block inlays
+     * hanging below it (this draft's own comment box) are excluded, which is exactly the boundary the
+     * edge belongs on.
+     */
+    private fun bottomEdgeY(): Int =
+        editor.visualLineToYRange(editor.offsetToVisualLine(editor.document.getLineEndOffset(end), false))[1]
 
     /** The edge whose grab zone contains editor-Y [y], preferring the nearer one; null if neither. */
     private fun edgeAt(y: Int): Edge? {
@@ -237,9 +251,14 @@ class CommentDraft private constructor(
         }
     }
 
-    /** Maps an editor-Y to a document line, clamped to the document bounds. */
+    /**
+     * Maps an editor-Y to a document line, clamped to the document bounds. Stated through the visual
+     * row at [y] (rather than `xyToLogicalPosition`, which would also resolve a column off a made-up
+     * x) so that pointing at *any* row of a soft-wrapped line yields that one logical line.
+     */
     private fun lineAtY(y: Int): Int =
-        editor.xyToLogicalPosition(Point(0, y)).line.coerceIn(0, editor.document.lineCount - 1)
+        editor.visualToLogicalPosition(VisualPosition(editor.yToVisualLine(y), 0))
+            .line.coerceIn(0, editor.document.lineCount - 1)
 
     private fun setHover(edge: Edge?) {
         editor.setCustomCursor(this, if (edge != null) resizeCursor else null)
@@ -292,13 +311,19 @@ class CommentDraft private constructor(
         return true
     }
 
-    /** Mouse dragged in edge-drag mode: map Y to a line and resize live. Returns true while dragging. */
+    /**
+     * Mouse dragged in edge-drag mode: map Y to a line and resize live. Returns true while dragging.
+     *
+     * The mapping is direction-aware because the two edge Ys use opposite boundary conventions:
+     * [topEdgeY] is the *inclusive* top of the first row, while [bottomEdgeY] is the *exclusive*
+     * bottom of the last one — i.e. already the next line's first row. Reading the bottom drag at
+     * `y - 1` keeps "release on the row you want to be last" resolving to that row.
+     */
     internal fun onMouseDragged(y: Int): Boolean {
         val edge = draggingEdge ?: return false
-        val line = lineAtY(y)
         when (edge) {
-            Edge.TOP -> resize(line.coerceAtMost(end), end)
-            Edge.BOTTOM -> resize(start, line.coerceAtLeast(start))
+            Edge.TOP -> resize(lineAtY(y).coerceAtMost(end), end)
+            Edge.BOTTOM -> resize(start, lineAtY(y - 1).coerceAtLeast(start))
         }
         return true
     }
@@ -319,18 +344,26 @@ class CommentDraft private constructor(
         editor.contentComponent.repaint()
     }
 
-    private fun paintEdges(editor: Editor, g: Graphics) {
+    // Painting goes through the same [topEdgeY] / [bottomEdgeY] the hit-testing uses; restating the
+    // geometry here is what let the two drift apart in the first place.
+    private fun paintEdges(g: Graphics) {
         val width = editor.contentComponent.width
-        val topY = editor.logicalPositionToXY(LogicalPosition(start, 0)).y
-        val bottomY = editor.logicalPositionToXY(LogicalPosition(end, 0)).y + editor.lineHeight
-        paintEdge(g, width, topY, hoveredEdge == Edge.TOP || draggingEdge == Edge.TOP)
-        paintEdge(g, width, bottomY, hoveredEdge == Edge.BOTTOM || draggingEdge == Edge.BOTTOM)
+        paintEdge(g, width, Edge.TOP, topEdgeY())
+        paintEdge(g, width, Edge.BOTTOM, bottomEdgeY())
     }
 
-    private fun paintEdge(g: Graphics, width: Int, y: Int, active: Boolean) {
+    /**
+     * Draws one edge stroke *inside* the range — `y .. y + thickness` for the top, `y - thickness ..
+     * y` for the bottom — rather than centred on the boundary. The box inlay's component begins at
+     * exactly [bottomEdgeY], so a centred bottom stroke is half-painted over by it and the wash reads
+     * as open-ended; drawn inward, the stroke is the last thing before the box and closes the region.
+     * Hit-testing keeps using the boundary Ys, so the grab zones and the drag feel are unchanged.
+     */
+    private fun paintEdge(g: Graphics, width: Int, edge: Edge, y: Int) {
+        val active = hoveredEdge == edge || draggingEdge == edge
         val thickness = if (active) JBUI.scale(2) else 1
         g.color = if (active) EDGE_ACTIVE else EDGE_IDLE
-        g.fillRect(0, y - thickness / 2, width, thickness)
+        g.fillRect(0, if (edge == Edge.TOP) y else y - thickness, width, thickness)
     }
 
     // ---- inline box (block inlay) ----------------------------------------------------------
