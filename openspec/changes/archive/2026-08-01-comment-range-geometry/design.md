@@ -189,8 +189,14 @@ the gutter bar's rectangle, are painting decisions no static read settles. Those
 
 ## Open Questions
 
-_None of these can be settled here — this machine has no display and `runIde` is impossible. Each
-needs a visual check in a running IDE._
+**Resolved 2026-08-01 by the author's manual check in a running IDE** ("checked manually, everything
+works as expected", PR #8) — every question below asked only for that visual confirmation, and all
+five came back as the design assumed: no follow-up treatment for the wash or the gutter bar, no gap
+needed between the bottom edge and the box border, no widening of the bottom grab zone. The questions
+are kept as written for the record.
+
+_None of these could be settled at authoring time — that machine had no display and `runIde` was
+impossible. Each needed a visual check in a running IDE._
 
 - Does the `LINES_IN_RANGE` wash actually *look* continuous over every visual row of a soft-wrapped
   line? The offset span and the row-by-row background sweep are confirmed statically above, so the

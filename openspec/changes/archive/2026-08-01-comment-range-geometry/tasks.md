@@ -150,3 +150,11 @@ Do **not** re-open §§1–5.
       per visual row. Also re-confirmed `bottomEdgeY`'s KDoc claim: `EditorCoordinateMapper
       .visualLineToYRange(vl)[1]` adds only `getHeightOfBlockElementsBeforeVisualLine(vl, …)`, so a
       block inlay *below* the row (this draft's own box) is excluded.
+
+## 8. Manual verification (running IDE)
+
+- [x] 8.1 All five Open Questions closed by the author's manual check in a running IDE on 2026-08-01
+      ("checked manually, everything works as expected", PR #8): the `LINES_IN_RANGE` wash and the
+      gutter bar both read as continuous over a soft-wrapped line, the bottom edge is legible under
+      the open box, the bottom grab zone is comfortable at `GRAB_ZONE_DP`, and edge-drags across a
+      wrapped line feel monotonic. No follow-up change is required.
