@@ -187,10 +187,12 @@ class EditorReviewOverlay(
         // rest. What the marker does carry now is the resting gutter bar: it is both the invisible live
         // position source (and the source for the card-hover range highlight) AND the at-rest "these
         // lines have a comment" signal. Riding the marker the overlay already keeps live means the bar
-        // drifts with in-IDE edits for free and needs no reconcile path of its own. The accent is the
-        // card's, so a card and its lines read as one object. `StoredCommentGutterIconRenderer` is kept
-        // unwired in the tree for the deferred hide-comments change to re-attach here.
-        highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RangeHighlight.STORED_COMMENT_ACCENT)
+        // drifts with in-IDE edits for free and needs no reconcile path of its own. This bar is the ONLY
+        // place a commented range wears the accent (design R1) — the card deliberately carries no accent
+        // edge, so there is one mark per range rather than two parallel lines.
+        // `StoredCommentGutterIconRenderer` is kept unwired in the tree for the deferred hide-comments
+        // change to re-attach here.
+        highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RelayStyle.ACCENT)
         markers[comment.id] = highlighter
         markerSubjects[comment.id] = comment.subject
     }
@@ -266,7 +268,7 @@ class EditorReviewOverlay(
         clearHoverHighlight()
         val startLine = document.getLineNumber(marker.startOffset)
         val endLine = document.getLineNumber(marker.endOffset)
-        hoverHighlight = RangeHighlight.create(editor, startLine, endLine, CommentDraft.RANGE_BACKGROUND)
+        hoverHighlight = RangeHighlight.create(editor, startLine, endLine, RelayStyle.RANGE_WASH)
         hoverHighlightId = id
     }
 

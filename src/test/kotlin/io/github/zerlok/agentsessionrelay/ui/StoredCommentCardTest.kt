@@ -14,7 +14,7 @@ import javax.swing.JPanel
 
 /**
  * Covers the *shape* of the read-only card (review-batch "Render stored comments as an inline card"):
- * the message layout — an always-present header row above the body, inside an accent frame — and the
+ * the message layout — an always-present header row above the body, inside a plain 1px outline — and the
  * two invariants that shape exists to protect: the card's fill and frame are not the code's, and
  * revealing the hover actions cannot change the card's height (which would reflow the code below the
  * block inlay).
@@ -48,7 +48,8 @@ class StoredCommentCardTest : BasePlatformTestCase() {
         val card = buildCard()
 
         assertTrue("card must be opaque to show its own fill", card.isOpaque)
-        assertEquals(UIUtil.getPanelBackground(), card.background)
+        assertEquals(RelayStyle.surface(), card.background)
+        assertEquals("the shared surface must be the platform panel background", UIUtil.getPanelBackground(), card.background)
         assertFalse(
             "card fill must differ from the editor's text background",
             card.background == editorEx.colorsScheme.defaultBackground,
@@ -56,26 +57,22 @@ class StoredCommentCardTest : BasePlatformTestCase() {
     }
 
     /**
-     * The accent bar is carried by the card's *border*, which is what puts it in `insets` — the single
-     * place both `getPreferredSize` and `doLayout` read a horizontal offset. So it shows up as a leading
-     * inset wider than the trailing one, and as a painted run of the shared stored-comment accent inside
-     * that leading inset (and nowhere near the trailing edge). An extra child component carrying the bar
-     * would leave the insets symmetric and fail the first assertion.
+     * The card carries **no** accent edge (design R1): a commented range wears the accent in exactly one
+     * place, the gutter bar over its lines, so a card and its range are tied by one mark instead of two
+     * parallel blue lines. Asserted two ways, because either alone is weak: the border's insets are
+     * symmetric (an accent line carried by the border — the shipped-then-retracted design — makes the
+     * leading inset wider), and no pixel of the accent is painted anywhere along a border row (an accent
+     * carried by an extra child, or by a same-width line, leaves the insets symmetric).
      */
-    fun `test the card carries a leading accent line in the shared stored-comment accent`() {
+    fun `test the card carries no accent edge`() {
         val card = buildCard()
         val insets = card.insets
-        val accentWidth = insets.left - insets.right
 
-        assertTrue("leading inset must exceed the trailing one by the accent width", accentWidth > 0)
+        assertEquals("leading and trailing insets must match — no accent line", insets.right, insets.left)
 
         val row = paintedBorderRow(card)
-        val accent = RangeHighlight.STORED_COMMENT_ACCENT.rgb
-        val accentPixels = row.indices.filter { row[it] == accent }
-
-        assertEquals("accent must be exactly the border's extra leading width", accentWidth, accentPixels.size)
-        assertTrue("accent must be a contiguous run", accentPixels.last() - accentPixels.first() == accentWidth - 1)
-        assertTrue("accent must sit inside the leading inset", accentPixels.last() < insets.left)
+        val accent = RelayStyle.ACCENT.rgb
+        assertTrue("no border pixel may be painted in the accent", row.none { it == accent })
     }
 
     // -- The always-present header row --

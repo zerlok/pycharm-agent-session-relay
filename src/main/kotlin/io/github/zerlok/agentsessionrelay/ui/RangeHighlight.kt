@@ -6,7 +6,6 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.LineMarkerRenderer
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
-import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import java.awt.Color
 
@@ -17,7 +16,11 @@ import java.awt.Color
  * over [HighlighterTargetArea.LINES_IN_RANGE]) with a colored bar painted in the left gutter — the
  * same [LineMarkerRenderer] hook VCS change bars use — so the commented lines are identifiable from
  * the line-number gutter as well as the code, and the draft and stored-hover highlights read as one
- * highlight by construction (both use [CommentDraft.RANGE_BACKGROUND]).
+ * highlight by construction (both use [RelayStyle.RANGE_WASH]).
+ *
+ * The colors themselves live in [RelayStyle], not here (design R4): the resting stored-comment bar is
+ * painted in [RelayStyle.ACCENT] and the two hover/draft washes in [RelayStyle.RANGE_WASH]. This class
+ * owns the *mechanism* — the geometry and the markup plumbing — and takes the color as a parameter.
  */
 class RangeHighlight private constructor(
     private val editor: Editor,
@@ -33,18 +36,6 @@ class RangeHighlight private constructor(
         // Width (unscaled dp) of the gutter bar painted beside the line numbers — a VCS-change-bar-sized
         // stripe: wide enough to read at a glance, narrow enough not to crowd the numbers (D3).
         private const val BAR_WIDTH_DP = 3
-
-        /**
-         * The stored comment's accent: the one color worn by both its card's left frame
-         * ([StoredCommentCard]) and the resting gutter bar on its position marker
-         * ([EditorReviewOverlay]), so "this card" and "these lines" are literally the same color.
-         *
-         * Deliberately **not** [CommentDraft.RANGE_BACKGROUND]: that is the pale *wash*, picked to sit
-         * behind text, and it is invisible drawn as a [BAR_WIDTH_DP] stripe or a card edge. The
-         * saturated blue that would fit is `CommentDraft.EDGE_ACTIVE`, which is private to a file this
-         * change may not touch; collapsing the two into one accent is a follow-up.
-         */
-        internal val STORED_COMMENT_ACCENT = JBColor(Color(0x3B, 0x74, 0xE8), Color(0x6E, 0x9B, 0xF0))
 
         /**
          * A [LineMarkerRenderer] that fills a [color] bar in the left gutter for its marker's line

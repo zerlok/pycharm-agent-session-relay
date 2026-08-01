@@ -155,8 +155,9 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
     }
 
     /**
-     * The other half of D5: the same iconless marker now carries the RESTING gutter bar, painted in the
-     * accent the card's leading edge wears — so "this card" and "these lines" are literally one color.
+     * The other half of D5: the same iconless marker now carries the RESTING gutter bar, painted in
+     * Relay's accent — the *only* place a commented range wears it, since the card carries no accent
+     * edge of its own (design R1).
      * The renderer is painted onto an offscreen image rather than merely asserted non-null, so a
      * regression that attaches a bar in some other color (e.g. the pale draft wash, invisible as a
      * stripe) fails here too.
@@ -178,7 +179,7 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         } finally {
             g.dispose()
         }
-        assertEquals(RangeHighlight.STORED_COMMENT_ACCENT.rgb, image.getRGB(0, 0))
+        assertEquals(RelayStyle.ACCENT.rgb, image.getRGB(0, 0))
     }
 
     /**

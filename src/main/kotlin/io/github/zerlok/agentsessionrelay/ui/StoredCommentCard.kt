@@ -22,18 +22,21 @@ import javax.swing.JPanel
  * full-width block inlay under the commented range by [EditorReviewOverlay]. Purely a view — both
  * buttons route through the store/controller, never mutating a surface directly.
  *
- * The card is shaped as **one message**: an author header row above the comment body, inside a frame
- * (1px outline plus a left accent bar) that owns the whole card. That is deliberate — a future
- * discussion thread stacks N such messages inside the same frame, each keeping its own header, without
- * re-cutting the card's geometry. Nothing about the message shape is stored: the author label is a
- * view-level constant and the domain record is untouched.
+ * The card is shaped as **one message**: an author header row above the comment body, inside a 1px
+ * outline that owns the whole card. That is deliberate — a future discussion thread stacks N such
+ * messages inside the same frame, each keeping its own header, without re-cutting the card's geometry.
+ * Nothing about the message shape is stored: the author label is a view-level constant and the domain
+ * record is untouched.
  *
  * Three shape decisions are load-bearing:
  *
- * - **Elevation.** The card is filled with the platform panel background, not the editor's own text
- *   background, so it reads as a control floating over code rather than as more code. The fill, the
- *   outline and the accent bar are three separate cues, so a theme where one of them washes out still
- *   leaves the card legible.
+ * - **Elevation.** The card is filled with [RelayStyle.surface], not the editor's own text background,
+ *   so it reads as a control floating over code rather than as more code. That fill plus the outline
+ *   are the card's whole visual identity: it carries **no accent edge of its own** (design R1). The
+ *   accent marks a commented range in exactly one place — the gutter bar over its lines — because two
+ *   parallel blue lines a few pixels apart read as a stripey margin, not as one object. It is also the
+ *   fill the authoring box wears ([CommentDraft]), so a card and the box that edits it are the same
+ *   object in two states.
  * - **Width cap.** The card panel is wrapped by [InlineWidth.capWidth] so the visible card is no wider
  *   than the editor's right-margin column (full width when no margin is configured), matching the
  *   authoring box.
@@ -47,10 +50,6 @@ import javax.swing.JPanel
  * focus" risk).
  */
 object StoredCommentCard {
-
-    // Unscaled dp width of the card's left accent line. Matched to RangeHighlight's gutter stripe so a
-    // card's edge and its range's gutter mark read as the same mark in two places.
-    private const val ACCENT_WIDTH_DP = 3
 
     // Unscaled dp gap between the header row and the body text, and between the two header icons.
     private const val HEADER_GAP_DP = 4
@@ -69,9 +68,9 @@ object StoredCommentCard {
         onHover: (Boolean) -> Unit,
     ): JComponent {
         // The UI-surface fill shared by the card and its (opaque) header, so the header can't show as a
-        // seam across the card's top. Distinct from editor.colorsScheme.defaultBackground in effectively
-        // every bundled theme — that distinctness is the point.
-        val cardBackground = UIUtil.getPanelBackground()
+        // seam across the card's top — and shared with the authoring box, so Edit doesn't change the
+        // object's appearance. Distinct from editor.colorsScheme.defaultBackground; that is the point.
+        val cardBackground = RelayStyle.surface()
 
         // Read-only, soft-wrapping body text — no editor, no keystroke capture; the card is inert.
         val bodyArea = JBTextArea(body).apply {
@@ -151,8 +150,8 @@ object StoredCommentCard {
         // the card's own (possibly stretched) width. Keeping both sides on this one value is what stops
         // the layout churn: getPreferredSize's guarded setSize settles to a no-op instead of fighting a
         // doLayout that sized the body to a different width every pass (the feedback that pegged the CPU).
-        // The accent bar rides the card's *border*, so its width reaches both sides through `insets` here
-        // and nowhere else — no second horizontal offset exists to keep in sync.
+        // Every horizontal offset the card has rides its *border*, so it reaches both sides through
+        // `insets` here and nowhere else — no second offset exists to keep in sync.
         val contentWidth = { insets: java.awt.Insets -> (baseWidth - insets.left - insets.right).coerceAtLeast(1) }
 
         val card = object : JPanel() {
@@ -193,13 +192,12 @@ object StoredCommentCard {
         }.apply {
             isOpaque = true
             background = cardBackground
+            // Closes the card on every edge at the theme's own frame weight, then pads the content. No
+            // accent line (design R1) — so the insets stay symmetric and `contentWidth` below loses the
+            // same amount on both sides. Whatever the border becomes, it must stay *in the border*: that
+            // is the single place both getPreferredSize and doLayout read a horizontal offset from.
             border = JBUI.Borders.compound(
-                // Closes the card's right/bottom/top edges at the theme's own frame weight...
                 JBUI.Borders.customLine(JBColor.border(), 1),
-                // ...while the leading edge carries the accent bar — the message idiom, and the same
-                // color as this comment's resting gutter bar. Carried by the border on purpose: it lands
-                // in `insets`, which is the single place both getPreferredSize and doLayout read it.
-                JBUI.Borders.customLine(RangeHighlight.STORED_COMMENT_ACCENT, 0, ACCENT_WIDTH_DP, 0, 0),
                 JBUI.Borders.empty(8, 12),
             )
             cursor = Cursor.getDefaultCursor()
