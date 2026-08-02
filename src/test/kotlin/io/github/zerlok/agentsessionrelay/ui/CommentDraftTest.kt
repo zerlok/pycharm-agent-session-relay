@@ -7,13 +7,18 @@ import com.intellij.openapi.actionSystem.DataSnapshotProvider
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.CommandProcessor
+import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.EditorTextField
+import io.github.zerlok.agentsessionrelay.domain.Subject
+import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JComponent
@@ -126,6 +131,61 @@ class CommentDraftTest : BasePlatformTestCase() {
 
         assertEquals(setOf(PlatformCoreDataKeys.FILE_EDITOR.name), sink.explicitNulls)
         assertEquals(emptyMap<String, Any?>(), sink.values)
+    }
+
+    /**
+     * Reopening a **stored** comment must leave undo with nothing to reach (defect C / D4). The
+     * stored body is the box's starting point, not an edit to roll back: seeding it as a document
+     * *change* (`bodyField.text = editing.body`) put an undoable action on the body's own stack, so the
+     * first Ctrl+Z in a reopened box wiped the saved text — reported from a running IDE.
+     *
+     * The open is wrapped in a command because that is how the real `openForEdit` runs (an action's
+     * execution is a command, and the platform records document changes into the command in flight);
+     * outside one, the old seeding would not have been recorded and this test would pass vacuously.
+     * Asserted against the platform's own [UndoManager], on the box's own [TextEditor] — the same
+     * `FILE_EDITOR` the panel supplies, so this is the stack `UndoRedoAction` would act on.
+     */
+    fun `test reopening a stored comment leaves nothing for undo to revert`() {
+        val stored = ReviewBatchService.getInstance(project)
+            .addComment(Subject.LineRange(myFixture.file.virtualFile.url, 1, 1), "stored body")
+
+        CommandProcessor.getInstance().executeCommand(
+            project,
+            { controller.openForEdit(myFixture.editor, stored) },
+            "Edit Review Comment",
+            null,
+        )
+        val boxEditor = TextEditorProvider.getInstance().getTextEditor(showBody())
+
+        assertEquals("the box opens on the stored body", "stored body", bodyField().text)
+        assertFalse(
+            "the seeded body is the baseline, so undo has nothing to revert",
+            UndoManager.getInstance(project).isUndoAvailable(boxEditor),
+        )
+    }
+
+    /**
+     * The other half of D4: making the seed unreachable must not make the *user's* own edits
+     * unreachable. After typing into a reopened box, undo is available again — it just stops at the
+     * stored body rather than continuing past it to empty.
+     */
+    fun `test the user's own edit in a reopened box is still undoable`() {
+        val stored = ReviewBatchService.getInstance(project)
+            .addComment(Subject.LineRange(myFixture.file.virtualFile.url, 1, 1), "stored body")
+        controller.openForEdit(myFixture.editor, stored)
+        val boxEditor = TextEditorProvider.getInstance().getTextEditor(showBody())
+
+        CommandProcessor.getInstance().executeCommand(
+            project,
+            { setBody("stored body, revised") },
+            "Typing",
+            null,
+        )
+
+        assertTrue(
+            "the user's own revision is undoable",
+            UndoManager.getInstance(project).isUndoAvailable(boxEditor),
+        )
     }
 
     // -- Live resize: a body edit revalidates the live box (defect B / D2-R) --

@@ -233,6 +233,33 @@ consumer: `StoredCommentCard` has no editable body, so it has no undo scope to c
 document to listen to. A new helper file would only widen the merge surface against the sibling
 changes landing concurrently in `StoredCommentCard` / `EditorReviewOverlay` for no reuse.
 
+**D4 — Seed the edit-mode body as the document's *initial content*, not as a change applied to an
+empty document.** Reported from a running IDE against the otherwise-passing D1-R build (defect C):
+reopen a saved comment, press Ctrl+Z, and the whole body vanishes. D1-R had done its job — undo was
+correctly scoped to the box and the source file was untouched — but the *first thing on the box's own
+undo stack* was Relay's own seeding. `init` did `bodyField.text = editing.body`, and
+`EditorTextField.setText` is a genuine document change; the platform records it into whichever command
+is in flight, which for the edit path is the edit action's own command. So the earliest undoable state
+of a reopened box was "empty", and one Ctrl+Z reached it.
+
+The fix is to move the seed one step earlier, into `EditorFactory.createDocument(editing?.body ?: "")`.
+Initial content passed to the factory fires no document-change event, so there is nothing on the stack
+before the user's own first keystroke. The undo baseline becomes the text the box opened with — empty
+when authoring, the stored body when editing — which is what the spec now requires.
+
+- _Alternative — `UndoUtil.disableUndoFor(document)` while seeding:_ suppresses undo for the document
+  wholesale or needs careful re-enabling, and the goal is not "no undo" but "undo stops at the
+  baseline". Rejected as both broader and more fragile than not making a change in the first place.
+- _Alternative — wrap the seeding in `CommandProcessor.runUndoTransparentAction`:_ would work, but it
+  keeps a document change that then has to be argued as invisible, where `createDocument` has no
+  change to argue about. Rejected on Single Source of Truth grounds: one construction site instead of
+  a construction site plus a correction.
+- _Alternative — clear the undo stack after seeding:_ no supported API for a documentless
+  `EditorFactory` document, and it would also discard the user's edits if it ever ran late. Rejected.
+- This is *not* a revision of D1-R. D1-R decides **which** undo stack the box acts on; D4 decides
+  **what is on** that stack when the box opens. Both are needed, and the running-IDE report confirmed
+  D1-R's half independently (the source file was never touched).
+
 ## Risks / Trade-offs
 
 - **[Overriding `FILE_EDITOR` hides the host file editor from *every* file-editor-scoped action while
@@ -271,6 +298,19 @@ changes landing concurrently in `StoredCommentCard` / `EditorReviewOverlay` for 
 Nothing below can be settled here — this machine has no display and `runIde` is impossible, so the
 only local evidence is `compileKotlin`, the unit suite, and reading the platform's own bytecode. Each
 must be answered in a running IDE and the answer recorded back into this section.
+
+> **Answered in a running IDE (2026-08-02, by the maintainer).** Questions 1, 2, 3, 5 and 6 — the
+> tasks.md 3.3 checklist — all came back as specified: undo and redo act on the comment body and leave
+> the source file alone, undo returns to the file when focus does, the box grows on the keystroke that
+> adds a line *and* on the character that soft-wraps, it shrinks again on delete, both behaviours
+> survive an edge-drag rebuild, and there is no perceptible typing latency (so the coalescing reserved
+> in tasks.md 2.4 stays unbuilt). Question 1 also surfaced **defect C**, which the checklist did not
+> cover: in *edit* mode the first undo wiped the stored body. That is D4 below.
+>
+> **Questions 4 and 7 are still open** — neither was part of what was exercised. 4 (does the box's
+> `FILE_EDITOR` regress Save All / Find in Files with the box focused?) and 7 (is the deferred
+> `revalidate()` load-bearing at all?) are both still worth answering; 7 in particular could delete
+> half this change.
 
 > **Answered statically (remediation round).** The original Open Question 1 — "does `setNull` let
 > `BasicUiDataRule` re-derive `FILE_EDITOR`?" — is decidable from `PreCachedDataContext$MySink.set`

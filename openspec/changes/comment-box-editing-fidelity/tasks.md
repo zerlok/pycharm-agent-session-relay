@@ -59,8 +59,9 @@
       `if (!newInlay.isValid) return@invokeLater` guard in `showBox`), then
       `boxPanel?.revalidate()`, `boxPanel?.repaint()`, and `inlay?.update()`. (**The `inlay?.update()`
       is superseded by 4.4** — it cannot grow the box; `revalidate()` is the mechanism.)
-- [ ] 2.4 (Only if 3.3 reports typing latency) Coalesce: remember the last measured preferred height
-      of `boxPanel` and skip the revalidate/update when it is unchanged.
+- [x] 2.4 ~~(Only if 3.3 reports typing latency) Coalesce: remember the last measured preferred height
+      of `boxPanel` and skip the revalidate/update when it is unchanged.~~ **Not needed** — 3.3 reported
+      no perceptible latency, so this stays unbuilt rather than added speculatively.
 - [x] 2.5 Keep the whole path on the EDT and use no `WriteCommandAction` — Relay's own state is never
       wrapped in one (`docs/ARCHITECTURE.md`, threading rules).
 
@@ -71,9 +72,13 @@
       existing test asserts the box's undo scope or measure timing, so none should need editing; if
       one does, say why in the commit rather than loosening the assertion. (Ran here — network was
       available; `BUILD SUCCESSFUL`, no test needed editing.)
-- [ ] 3.3 Running-IDE checklist — **cannot be run on this machine** (no display, `runIde` impossible).
+- [x] 3.3 Running-IDE checklist — **cannot be run on this machine** (no display, `runIde` impossible).
       Hand it to the user and write the outcomes back into `design.md` "## Open Questions" rather than
-      claiming any of it as verified:
+      claiming any of it as verified. (**Run by the maintainer, 2026-08-02: every bullet below behaved
+      as specified.** Outcomes recorded in design.md "## Open Questions" — Open Questions 1, 2, 3, 5
+      and 6 are answered; 4 and 7 were not exercised and stay open. The first bullet additionally
+      surfaced **defect C**, outside this checklist's scope: in *edit* mode the first Ctrl+Z wiped the
+      stored body. See section 5.):
       - type in the box, press Ctrl+Z / Ctrl+Shift+Z → the source file is unchanged (this is the
         release blocker) and the box's own text undoes/redoes (Open Question 1);
       - click into the host editor, press Ctrl+Z → normal host-file undo is back;
@@ -182,10 +187,11 @@ deliver it was wrong. These tasks are the code side.
       compile because `TextEditorProvider` is not resolvable from `ui/`, **stop and report** — do not
       fall back to the mask, which is the defect being fixed. (`TextEditorProvider` resolves from
       `ui/`; both gates green — `compileKotlin --offline` clean, 85 tests pass.)
-- [ ] 4.7 The running-IDE checklist in 3.3 still stands, with the first item now the acceptance gate
+- [x] 4.7 The running-IDE checklist in 3.3 still stands, with the first item now the acceptance gate
       for 4.1: type in the box, Ctrl+Z / Ctrl+Shift+Z, and confirm (a) the source file is untouched and
       (b) the box's own text undoes and redoes (design.md Open Question 1). Record the outcome in
-      "## Open Questions", not here.
+      "## Open Questions", not here. (**Passed** — both halves confirmed by the maintainer, so 4.1 is
+      accepted. The same check found defect C, which is section 5, not a failure of 4.1.)
 - [x] 4.8 Merge `main` (PRs #8 `comment-range-geometry` and #9 `stored-comment-card-presentation`) and
       reconcile. Code conflict was the import block alone; both fixes compose with the restructured
       `buildPanel`/`showBox` untouched. The delta spec needed rebasing by hand: it had been written
@@ -194,3 +200,30 @@ deliver it was wrong. These tasks are the code side.
       cross-reference to "Present the authoring box as the stored card's editing state". It is now
       purely additive over the current main spec. Gates re-run on the merge: `compileKotlin --offline`
       clean, `./gradlew test` green — 120 tests, 0 failures (the 6 of `CommentDraftTest` included).
+
+## 5. Defect C — undo wipes the stored body when editing a saved comment (from the 3.3 run)
+
+Reported by the maintainer against the merged, otherwise-passing build: reopen a saved comment for
+editing, press Ctrl+Z, and the whole body disappears. D1-R is *not* at fault — undo was correctly
+scoped to the box and the source file untouched — the problem is that Relay's own seeding was the
+first undoable action on the box's stack. Design record: D4. Spec: the delta's "Capture a multi-line
+body with submit and cancel" now states the undo **baseline** rule and carries two scenarios for it.
+
+- [x] 5.1 Move the edit-mode seed from `init` (`bodyField.text = editing.body`, a real document change
+      recorded into the edit action's command) into the field's document construction:
+      `EditorFactory.getInstance().createDocument(editing?.body ?: "")`. Initial content fires no
+      change event, so nothing precedes the user's first keystroke on the undo stack. Do **not** reach
+      for `UndoUtil.disableUndoFor` or an undo-transparent action — the goal is "undo stops at the
+      baseline", not "no undo" (D4's rejected alternatives).
+- [x] 5.2 Regression test in `CommentDraftTest`: open a stored comment through the real `openForEdit`
+      path *inside a `CommandProcessor` command* (that is how an action runs, and outside one the old
+      seeding would not have been recorded — the test would pass vacuously), then assert
+      `UndoManager.isUndoAvailable(boxEditor)` is false for the box's own `TextEditor`, i.e. the very
+      `FILE_EDITOR` the panel supplies under D1-R. **Verified non-vacuous**: reverted 5.1 locally and
+      the test fails on exactly that assertion, reproducing the report.
+- [x] 5.3 Second test for the other half — the user's *own* edit in a reopened box is still undoable —
+      so 5.1 cannot be "fixed" by making the body's undo dead altogether.
+- [x] 5.4 Gates: `./gradlew compileKotlin --offline` clean; `./gradlew test` green.
+- [ ] 5.5 Running-IDE re-check of the reported flow: save a comment, reopen it, press Ctrl+Z with
+      nothing typed → nothing happens and the body stays; then type, Ctrl+Z → the typing is undone down
+      to the stored body and no further. Record the outcome here.

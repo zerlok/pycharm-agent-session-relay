@@ -108,7 +108,13 @@ class CommentDraft private constructor(
     // panel/inlay (D4). A subclassed preferred height floors the box at a compact [BODY_ROWS]-row
     // footprint (comment-box-sizing) and lets the field grow past that as the body is typed.
     private val bodyField: EditorTextField = object : EditorTextField(
-        EditorFactory.getInstance().createDocument(""),
+        // In edit mode the stored body is the document's *initial content*, not a change applied to an
+        // empty one (D4). Seeding afterwards — `bodyField.text = editing.body` — is a real document
+        // change, recorded by the platform's undo machinery into whatever command is open (the edit
+        // action's own), so the first Ctrl+Z in a reopened box rolled the body back to empty and wiped
+        // the saved text. Text handed to `createDocument` fires no change event, so there is nothing
+        // before the user's own first edit for undo to reach.
+        EditorFactory.getInstance().createDocument(editing?.body ?: ""),
         editor.project,
         FileTypes.PLAIN_TEXT,
         /* isViewer = */ false,
@@ -156,8 +162,8 @@ class CommentDraft private constructor(
     private var draggingEdge: Edge? = null
 
     init {
-        // Edit mode: pre-fill the body with the comment's current text so the user revises in place.
-        if (editing != null) bodyField.text = editing.body
+        // Edit mode pre-fills the body with the comment's current text so the user revises in place —
+        // done at document construction above, not here, so undo cannot reach past it (D4).
         // Re-measure the box on every body edit (D2-R). Registered here — once per draft, on the
         // *retained* field's document, parented to the draft — for the same reason [registerShortcuts]
         // registers on the wrapper: showBox/hideBox tear down and rebuild the panel and the inner

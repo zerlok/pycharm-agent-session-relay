@@ -12,7 +12,11 @@ field is focused, an undo or redo SHALL NOT modify the underlying source file's 
 consume, replay, or reorder the underlying file's undo history. When input focus moves back to the
 underlying editor, undo and redo SHALL again act on that file as normal. This scoping SHALL hold for
 every binding of undo/redo the IDE offers — any keymap, the Edit menu, the editor context menu — not
-only for a fixed list of key strokes. In addition the box SHALL handle Ctrl+Enter or Cmd+Enter (or the
+only for a fixed list of key strokes. Undo SHALL NOT reach past the body the box opened with: the text
+the box is seeded with — empty when authoring, the stored body when editing an existing comment (see
+"Edit an existing comment") — is the undo **baseline**, not an edit to be rolled back. Undo invoked in
+a freshly opened box SHALL therefore do nothing, and undo after typing SHALL stop at that baseline
+rather than continuing past it to an empty body. In addition the box SHALL handle Ctrl+Enter or Cmd+Enter (or the
 box's primary action button) to submit, and Esc (or a "Cancel" button) to cancel. The primary action's
 label and styling are specified by "Present the authoring box as the stored card's editing state".
 
@@ -45,6 +49,17 @@ label and styling are specified by "Present the authoring box as the stored card
   there, and then invokes undo
 - **THEN** undo acts on the underlying file as it normally would, and the comment box stays open with
   its body intact
+
+#### Scenario: Undo in a reopened comment does not clear the stored body
+
+- **WHEN** the user submits a comment, reopens it for editing, and invokes undo before typing anything
+- **THEN** nothing happens — the box still shows the stored body, which is not rolled back to empty
+
+#### Scenario: Undo after revising a stored comment stops at the stored body
+
+- **WHEN** the user reopens a stored comment, revises the body, and invokes undo repeatedly
+- **THEN** the revisions are undone one by one down to the stored body, and further undo does not
+  empty the box
 
 #### Scenario: Undo scoping survives a range resize
 
