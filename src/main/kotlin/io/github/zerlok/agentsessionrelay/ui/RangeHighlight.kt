@@ -16,7 +16,11 @@ import java.awt.Color
  * over [HighlighterTargetArea.LINES_IN_RANGE]) with a colored bar painted in the left gutter — the
  * same [LineMarkerRenderer] hook VCS change bars use — so the commented lines are identifiable from
  * the line-number gutter as well as the code, and the draft and stored-hover highlights read as one
- * highlight by construction (both use [CommentDraft.RANGE_BACKGROUND]).
+ * highlight by construction (both use [RelayStyle.RANGE_WASH]).
+ *
+ * The colors themselves live in [RelayStyle], not here (design R4): the resting stored-comment bar is
+ * painted in [RelayStyle.ACCENT] and the two hover/draft washes in [RelayStyle.RANGE_WASH]. This class
+ * owns the *mechanism* — the geometry and the markup plumbing — and takes the color as a parameter.
  */
 class RangeHighlight private constructor(
     private val editor: Editor,
