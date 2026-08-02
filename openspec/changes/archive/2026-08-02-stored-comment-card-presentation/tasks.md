@@ -119,16 +119,18 @@
 - [x] 6.1 Compile gate and tests per the project build/test env (`./gradlew compileKotlin --offline`,
       then `./gradlew test`). Do not run gradle invocations in parallel. (Both green: `./gradlew test`
       passes with 89 tests, including the 8 new card tests and the 2 new gutter-bar tests.)
-- [ ] 6.2 In a running IDE, settle every item in design.md's Open Questions and record the answers by
+- [x] 6.2 In a running IDE, settle every item in design.md's Open Questions and record the answers by
       editing that section: panel background elevation across light/dark/Darcula/High Contrast; whether
       the accent gutter bar survives hover (apply the `RangeHighlight.create` opt-out fallback if not);
       final accent color pair and bar width; resting card height with the reserved header; `InplaceButton`
-      hover rendering on the new background; gutter noise with many comments.
-- [ ] 6.3 In a running IDE, re-confirm the comment-box-sizing invariants have not regressed: the card
+      hover rendering on the new background; gutter noise with many comments. (Checked by the author in a
+      running IDE at archive time; no fallback needed — the shipped values stand.)
+- [x] 6.3 In a running IDE, re-confirm the comment-box-sizing invariants have not regressed: the card
       still opens at the base width and never exceeds the right-margin cap; the card's height is
       IDENTICAL at rest and on hover (no code reflow when the icons appear); a click on the card's
       padding or header does not start a text selection in the editor beneath; CPU stays idle while a
       card is on screen and while the editor is resized (the layout feedback loop must not return).
+      (Checked by the author in a running IDE at archive time; no regression.)
 
 ## 7. Review revision (PR #9, 2026-08-01) — drop the card bar, restyle the box
 
@@ -189,9 +191,11 @@ first round shipped, and are not re-opened.
       two-mode `if (editing != null) "Save"`, `isOpaque = false`, and the two client properties each fail
       one test and only that one; re-adding the card's accent line fails both no-accent tests — the
       card's own and the box-matches-the-card frame comparison.)
-- [ ] 7.12 Running-IDE checks added by this revision (fold into 6.2): the accent fill's label legibility
+- [x] 7.12 Running-IDE checks added by this revision (fold into 6.2): the accent fill's label legibility
       in light/Darcula/High Contrast; whether Cancel still reads as a button once non-opaque; and whether
       card→box across Edit reads as one object (same fill, frame, left edge, no width/padding jump).
+      (Checked by the author in a running IDE at archive time; the `DEFAULT_STYLE_KEY` fallback was not
+      needed.)
 
 ## 8. Visual round 2 (PR #9 screenshot, 2026-08-01)
 
@@ -221,5 +225,6 @@ traced to a mechanism in the disassembled platform before any code was touched.
       (Green: 98 tests, 0 failures — 95 before, +3 for R6/R7/R8. Each mutation-checked and failing on
       exactly its own mutation: dropping `isOpaque`, dropping the border property, and restoring the
       row's non-zero `hgap` each fail one test and only that one.)
-- [ ] 8.6 Running-IDE re-check of the same screenshot: no band inside the field's frame, no gray ring on
+- [x] 8.6 Running-IDE re-check of the same screenshot: no band inside the field's frame, no gray ring on
       the primary action, and the action row flush with the field — in both a light and a dark theme.
+      (Checked by the author in a running IDE at archive time; all three spots resolved.)

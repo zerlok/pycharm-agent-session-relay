@@ -3,8 +3,9 @@
 ### Requirement: Highlight a stored comment's range on card hover
 
 A stored comment SHALL display a resting signal for its current line range in the line-number gutter:
-a colored bar, in the same accent color as its inline card's accent frame, so its commented lines are
-identifiable at a glance without hovering. That resting signal SHALL be gutter-only — a stored comment
+a colored bar in the plugin's accent color — the one place that accent marks a commented range, per
+"Render stored comments as an inline card" — so its commented lines are identifiable at a glance
+without hovering. That resting signal SHALL be gutter-only — a stored comment
 SHALL NOT display a wash over the code area at rest, and SHALL NOT display a gutter *icon*.
 
 While the pointer is over a stored comment's read-only inline card, the plugin SHALL additionally
