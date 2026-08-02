@@ -68,15 +68,28 @@ class CommentDraftController(private val project: Project) : Disposable {
 
     override fun dispose() = close()
 
-    /** Line range to comment on: the current selection if any, otherwise the clicked line. */
+    /**
+     * Line range to comment on: the selection only when [clickedLine] is *contained* in it, else that
+     * line alone. Without the containment test a selection anywhere in the file hijacked every gutter
+     * "+", so the box opened nowhere near the click.
+     *
+     * Containment is tested against the **untrimmed** span while the trailing-line trim applies only
+     * to the returned range. That asymmetry is what keeps both entry points on this one rule
+     * (`review-annotation`: "Right-click with the caret on the excluded trailing line"): a top-down
+     * drag-select leaves the caret on the very line the trim drops, and `AddReviewCommentAction`
+     * passes that caret line.
+     */
     fun rangeFor(editor: Editor, clickedLine: Int): Pair<Int, Int> {
         val selection = editor.selectionModel
         if (!selection.hasSelection()) return clickedLine to clickedLine
 
         val document = editor.document
         val first = document.getLineNumber(selection.selectionStart)
-        var last = document.getLineNumber(selection.selectionEnd)
+        val rawLast = document.getLineNumber(selection.selectionEnd)
+        if (clickedLine < first || clickedLine > rawLast) return clickedLine to clickedLine
+
         // A selection ending exactly at a line start doesn't really include that trailing line.
+        var last = rawLast
         if (last > first && selection.selectionEnd == document.getLineStartOffset(last)) last--
         return first to maxOf(first, last)
     }
