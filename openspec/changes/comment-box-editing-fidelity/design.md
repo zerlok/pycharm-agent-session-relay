@@ -2,20 +2,23 @@
 
 Everything here happens inside `ui/CommentDraft.kt`. The relevant shape of that file today:
 
-- The body is an `EditorTextField` (line 104) constructed over an `EditorFactory` document, with
-  `isUseSoftWraps = true` (line 120) and a `getPreferredSize` override (lines 111–116) that floors the
-  height at `lineHeight * BODY_ROWS` (`BODY_ROWS = 2`, line 413) and otherwise grows with content.
-- `buildPanel` (lines 475–524) wraps that field in an anonymous `object : JPanel(BorderLayout(...))`
-  whose `getPreferredSize` pins the *width* to `InlineWidth.baseWidthPx(editor)` and leaves the height
+(Symbols only, no line pins — the file moved under this change and under the `comment-range-geometry`
+/ `stored-comment-card-presentation` merges, and a pinned number is a second source of truth for
+where code lives.)
+
+- The body is an `EditorTextField` (`bodyField`) constructed over an `EditorFactory` document, with
+  `isUseSoftWraps = true` and a `getPreferredSize` override that floors the height at
+  `lineHeight * BODY_ROWS` (`BODY_ROWS = 2`) and otherwise grows with content.
+- `buildPanel` wraps that field in an anonymous `object : JPanel(BorderLayout(...))` whose
+  `getPreferredSize` pins the *width* to `InlineWidth.baseWidthPx(editor)` and leaves the height
   content-driven, then returns `InlineWidth.capWidth(content, cap)`.
-- `showBox` (lines 345–388) hands that panel to
+- `showBox` hands that panel to
   `EditorEmbeddedComponentManager.getInstance().addComponent(editor, panel, properties)` with
-  `fullWidth = true` and stores the resulting `Inlay` in `inlay` (line 366). It is called once on open
-  and again on every edge-drag release; `hideBox` (lines 391–394) disposes the inlay.
-- `registerShortcuts` (lines 526–561) is deliberately a **once-per-draft** registration on the
-  *retained* `bodyField`, parented to the draft, precisely because `showBox`/`hideBox` tear the panel
-  and the inner editor down and rebuild them (the KDoc at lines 532–540 spells this out). The
-  `shortcutsRegistered` flag (lines 371–374) enforces it.
+  `fullWidth = true` and stores the resulting `Inlay` in `inlay`. It is called once on open
+  and again on every edge-drag release; `hideBox` disposes the inlay.
+- `registerShortcuts` is deliberately a **once-per-draft** registration on the *retained* `bodyField`,
+  parented to the draft, precisely because `showBox`/`hideBox` tear the panel and the inner editor
+  down and rebuild them (its KDoc spells this out). The `shortcutsRegistered` flag enforces it.
 
 Facts established against the PyCharm CE 2024.2.5 SDK actually on the classpath (read out of
 `lib/app-client.jar` of the `pycharm-community-2024.2.5` distribution in the Gradle cache):
@@ -125,7 +128,7 @@ geometry, `StoredCommentCard` and `EditorReviewOverlay`; this change must not to
 
 **D1-R (supersedes D1) — Set `FILE_EDITOR` on the box's content panel to the box's *own* `TextEditor`;
 mask only when there is no inner editor to name.** The box content panel built in `buildPanel` (the
-anonymous `JPanel` at line 491) implements `com.intellij.openapi.actionSystem.UiDataProvider`, and its
+anonymous `JPanel`) implements `com.intellij.openapi.actionSystem.UiDataProvider`, and its
 `uiDataSnapshot(sink)` does:
 
 ```
@@ -185,7 +188,7 @@ listener.
 deferred to the EDT queue.** Register, once per draft, a `DocumentListener` on `bodyField.document` with the draft as
 parent disposable (`bodyField.document.addDocumentListener(listener, this)`). On `documentChanged`,
 schedule the re-measure through `ApplicationManager.getApplication().invokeLater { … }`, guard on the
-inlay still being valid (exactly as `showBox`'s deferred focus request does at lines 382–386), then
+inlay still being valid (exactly as `showBox`'s deferred focus request does), then
 `revalidate()` + `repaint()` the current box panel. **`revalidate()` is the whole mechanism**: it
 schedules the layout pass that reaches `MyRenderer.doLayout()` → `synchronizeBoundsWithInlay()`,
 which reads the panel's new preferred height, `setBounds`es the renderer and calls `Inlay.update()`

@@ -12,8 +12,9 @@ field is focused, an undo or redo SHALL NOT modify the underlying source file's 
 consume, replay, or reorder the underlying file's undo history. When input focus moves back to the
 underlying editor, undo and redo SHALL again act on that file as normal. This scoping SHALL hold for
 every binding of undo/redo the IDE offers — any keymap, the Edit menu, the editor context menu — not
-only for a fixed list of key strokes. In addition the box SHALL handle Ctrl+Enter or Cmd+Enter (or an
-"Add review comment" button) to submit, and Esc (or a "Cancel" button) to cancel.
+only for a fixed list of key strokes. In addition the box SHALL handle Ctrl+Enter or Cmd+Enter (or the
+box's primary action button) to submit, and Esc (or a "Cancel" button) to cancel. The primary action's
+label and styling are specified by "Present the authoring box as the stored card's editing state".
 
 #### Scenario: Enter inserts a newline in the box
 
@@ -73,9 +74,12 @@ with the typed body rather than reserving a fixed multi-row floor. That height c
 applied on the edit that changes the body: when the body gains or loses a visual line, the box SHALL
 re-measure and the code below it SHALL reflow as part of handling that edit, without waiting for an
 unrelated repaint, resize, or layout pass. This SHALL hold whether the extra line came from a typed
-newline or from soft-wrapping a long line in which no newline was typed. The target range SHALL be
-the current selection when one exists, otherwise the single clicked line. When the selection ends
-exactly at the start of a line, that trailing line SHALL NOT be included in the range.
+newline or from soft-wrapping a long line in which no newline was typed. The target range SHALL be the
+current selection **only when the target line falls within the selection's line span**; otherwise it
+SHALL be that single line alone, and the selection SHALL be ignored. When the selection ends exactly
+at the start of a line, that trailing line SHALL NOT be included in the resulting range — but it
+SHALL still count as part of the span tested for containment, so a target line resting there resolves
+to the selection.
 
 #### Scenario: Comment on a single clicked line
 
@@ -85,9 +89,15 @@ exactly at the start of a line, that trailing line SHALL NOT be included in the 
 
 #### Scenario: Comment on a multi-line selection
 
-- **WHEN** the user selects lines 10–15 and clicks the add-comment icon
+- **WHEN** the user selects lines 10–15 and clicks the add-comment icon on a line within 10–15
 - **THEN** an inline comment box opens anchored to lines 10–15 with those lines highlighted in the
   code area and the line-number gutter
+
+#### Scenario: Clicking outside the selection comments the clicked line
+
+- **WHEN** the user has lines 10–15 selected and clicks the add-comment icon on line 40 (or line 3)
+- **THEN** the selection is ignored and an inline comment box opens anchored to that clicked line
+  alone (start line == end line == 40), so the box appears where the user clicked
 
 #### Scenario: Range highlight covers the gutter
 
@@ -97,8 +107,15 @@ exactly at the start of a line, that trailing line SHALL NOT be included in the 
 
 #### Scenario: Selection ending at a line start excludes the trailing line
 
-- **WHEN** the selection ends exactly at the start offset of a line below its first line
+- **WHEN** the selection ends exactly at the start offset of a line below its first line, and the
+  target line is within the selection
 - **THEN** that trailing line is excluded from the anchored range
+
+#### Scenario: The trailing line still counts for containment
+
+- **WHEN** the selection ends exactly at the start offset of line 16 (so the trimmed range is 10–15)
+  and the target line is 16
+- **THEN** the range resolves to the selection's trimmed range 10–15 rather than to line 16 alone
 
 #### Scenario: Box width is capped at the right margin
 

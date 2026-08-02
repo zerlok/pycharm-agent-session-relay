@@ -14,7 +14,7 @@
 
 - [x] 1.1 In `CommentDraft.buildPanel`, make the box content panel — the anonymous
       `object : JPanel(BorderLayout(0, JBUI.scale(6)))` that already overrides `getPreferredSize`
-      (around line 491) — additionally implement
+      — additionally implement
       `com.intellij.openapi.actionSystem.UiDataProvider`, overriding
       `uiDataSnapshot(sink: DataSink)` to call `sink.setNull(PlatformCoreDataKeys.FILE_EDITOR)`.
       (**The `setNull`-only body is superseded by 4.1** — the panel must *supply* the box's own
@@ -186,3 +186,11 @@ deliver it was wrong. These tasks are the code side.
       for 4.1: type in the box, Ctrl+Z / Ctrl+Shift+Z, and confirm (a) the source file is untouched and
       (b) the box's own text undoes and redoes (design.md Open Question 1). Record the outcome in
       "## Open Questions", not here.
+- [x] 4.8 Merge `main` (PRs #8 `comment-range-geometry` and #9 `stored-comment-card-presentation`) and
+      reconcile. Code conflict was the import block alone; both fixes compose with the restructured
+      `buildPanel`/`showBox` untouched. The delta spec needed rebasing by hand: it had been written
+      against the pre-#8/#9 text of both requirements, so as written it would have reverted the
+      target-range containment rules (and dropped two of their scenarios) and the primary action's
+      cross-reference to "Present the authoring box as the stored card's editing state". It is now
+      purely additive over the current main spec. Gates re-run on the merge: `compileKotlin --offline`
+      clean, `./gradlew test` green — 120 tests, 0 failures (the 6 of `CommentDraftTest` included).

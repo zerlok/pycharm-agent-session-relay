@@ -13,7 +13,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
-import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
@@ -38,16 +38,15 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.BorderLayout
-import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
-import java.awt.Point
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.Box
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -90,12 +89,12 @@ class CommentDraft private constructor(
     private enum class Edge { TOP, BOTTOM }
 
     // The wash background attributes, reused every time the highlighter is (re)created on resize.
-    private val attributes = TextAttributes().apply { backgroundColor = RANGE_BACKGROUND }
+    private val attributes = TextAttributes().apply { backgroundColor = RelayStyle.RANGE_WASH }
 
     // Paints the brighter/thicker top and bottom edge lines that signal draggability (D4). It reads
     // the current start/end and the hovered/dragged edge off the draft, so a bare repaint reflects
     // both a live resize and a hover change without touching the highlighter.
-    private val edgeRenderer = CustomHighlighterRenderer { ed, _, g -> paintEdges(ed, g) }
+    private val edgeRenderer = CustomHighlighterRenderer { _, _, g -> paintEdges(g) }
 
     // Live wash over the commented lines; recreated on each range change (positions can't be moved
     // on an existing RangeHighlighter). This is the VIEW's live position marker (ARCHITECTURE §3.2).
@@ -127,11 +126,23 @@ class CommentDraft private constructor(
         addSettingsProvider { innerEditor -> innerEditor.settings.isUseSoftWraps = true }
         // A multiline EditorTextField draws no border of its own, so on its own it blends into the
         // panel. Restore the framed "white input inside the gray box" look the old JBScrollPane gave:
-        // a 1px field-border line plus a little inner padding around the text.
+        // a 1px field line plus a little inner padding around the text. The line is Relay's accent
+        // rather than the theme's frame color (design R2), so the one place the user types is the one
+        // place the box is accented — matching the primary action it feeds.
         border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(JBColor.border(), 1),
+            JBUI.Borders.customLine(RelayStyle.ACCENT, 1),
             JBUI.Borders.empty(3, 5),
         )
+        // ...and the field must paint that padding itself (design R6). EditorTextField extends
+        // NonOpaquePanel, so without this the 3x5 ring inside the accent line is never painted and the
+        // BOX's surface shows through it — the frame then reads as a rectangle floating around the input
+        // instead of as the input's own frame. Enforcing the editor's own background (rather than
+        // leaving the field's default, which falls back to UIUtil.getTextFieldBackground() — a
+        // different color from the editor background in dark themes) also pushes the same color into
+        // the inner editor when it is created, so the ring and the text area match by construction.
+        isOpaque = true
+        // Qualified: inside this apply block, a bare `editor` is EditorTextField's own (still-null) one.
+        background = this@CommentDraft.editor.colorsScheme.defaultBackground
     }
     private val resizeCursor: Cursor = Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
 
@@ -238,7 +249,7 @@ class CommentDraft private constructor(
         // Extend the range highlight into the line-number gutter (D3): the shared colored bar, painted
         // in the reused wash color so the wash and the bar read as one highlight. Recreated with the
         // wash on each resize (this whole method runs again), so the bar tracks the range live.
-        highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RANGE_BACKGROUND)
+        highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RelayStyle.RANGE_WASH)
         return highlighter
     }
 
@@ -264,11 +275,26 @@ class CommentDraft private constructor(
 
     internal fun handles(editor: Editor): Boolean = this.editor === editor
 
-    /** Editor-Y of the top border of the range (top of [start]) in editor coordinates. */
-    private fun topEdgeY(): Int = editor.logicalPositionToXY(LogicalPosition(start, 0)).y
+    /**
+     * Editor-Y of the top border of the range: the top of [start]'s **first** visual row.
+     *
+     * Every Y here is derived from visual rows, not logical lines, because a soft-wrapped logical
+     * line is one line occupying several rows — logical math anchors the range to its first row only
+     * and leaves painting, hit-testing and the drag mapping disagreeing about where the line ends. A
+     * line-start offset is never a soft-wrap position, so its visual line *is* the range's first row.
+     */
+    private fun topEdgeY(): Int =
+        editor.visualLineToY(editor.offsetToVisualLine(editor.document.getLineStartOffset(start), false))
 
-    /** Editor-Y of the bottom border of the range (bottom of [end]) in editor coordinates. */
-    private fun bottomEdgeY(): Int = editor.logicalPositionToXY(LogicalPosition(end, 0)).y + editor.lineHeight
+    /**
+     * Editor-Y of the bottom border of the range: the bottom of [end]'s **last** visual row (see
+     * [topEdgeY] for why visual rows). The line-*end* offset taken with `beforeSoftWrap = false`
+     * resolves to that last row, and `visualLineToYRange` reports the row's own extent — block inlays
+     * hanging below it (this draft's own comment box) are excluded, which is exactly the boundary the
+     * edge belongs on.
+     */
+    private fun bottomEdgeY(): Int =
+        editor.visualLineToYRange(editor.offsetToVisualLine(editor.document.getLineEndOffset(end), false))[1]
 
     /** The edge whose grab zone contains editor-Y [y], preferring the nearer one; null if neither. */
     private fun edgeAt(y: Int): Edge? {
@@ -282,9 +308,14 @@ class CommentDraft private constructor(
         }
     }
 
-    /** Maps an editor-Y to a document line, clamped to the document bounds. */
+    /**
+     * Maps an editor-Y to a document line, clamped to the document bounds. Stated through the visual
+     * row at [y] (rather than `xyToLogicalPosition`, which would also resolve a column off a made-up
+     * x) so that pointing at *any* row of a soft-wrapped line yields that one logical line.
+     */
     private fun lineAtY(y: Int): Int =
-        editor.xyToLogicalPosition(Point(0, y)).line.coerceIn(0, editor.document.lineCount - 1)
+        editor.visualToLogicalPosition(VisualPosition(editor.yToVisualLine(y), 0))
+            .line.coerceIn(0, editor.document.lineCount - 1)
 
     private fun setHover(edge: Edge?) {
         editor.setCustomCursor(this, if (edge != null) resizeCursor else null)
@@ -337,13 +368,19 @@ class CommentDraft private constructor(
         return true
     }
 
-    /** Mouse dragged in edge-drag mode: map Y to a line and resize live. Returns true while dragging. */
+    /**
+     * Mouse dragged in edge-drag mode: map Y to a line and resize live. Returns true while dragging.
+     *
+     * The mapping is direction-aware because the two edge Ys use opposite boundary conventions:
+     * [topEdgeY] is the *inclusive* top of the first row, while [bottomEdgeY] is the *exclusive*
+     * bottom of the last one — i.e. already the next line's first row. Reading the bottom drag at
+     * `y - 1` keeps "release on the row you want to be last" resolving to that row.
+     */
     internal fun onMouseDragged(y: Int): Boolean {
         val edge = draggingEdge ?: return false
-        val line = lineAtY(y)
         when (edge) {
-            Edge.TOP -> resize(line.coerceAtMost(end), end)
-            Edge.BOTTOM -> resize(start, line.coerceAtLeast(start))
+            Edge.TOP -> resize(lineAtY(y).coerceAtMost(end), end)
+            Edge.BOTTOM -> resize(start, lineAtY(y - 1).coerceAtLeast(start))
         }
         return true
     }
@@ -364,18 +401,26 @@ class CommentDraft private constructor(
         editor.contentComponent.repaint()
     }
 
-    private fun paintEdges(editor: Editor, g: Graphics) {
+    // Painting goes through the same [topEdgeY] / [bottomEdgeY] the hit-testing uses; restating the
+    // geometry here is what let the two drift apart in the first place.
+    private fun paintEdges(g: Graphics) {
         val width = editor.contentComponent.width
-        val topY = editor.logicalPositionToXY(LogicalPosition(start, 0)).y
-        val bottomY = editor.logicalPositionToXY(LogicalPosition(end, 0)).y + editor.lineHeight
-        paintEdge(g, width, topY, hoveredEdge == Edge.TOP || draggingEdge == Edge.TOP)
-        paintEdge(g, width, bottomY, hoveredEdge == Edge.BOTTOM || draggingEdge == Edge.BOTTOM)
+        paintEdge(g, width, Edge.TOP, topEdgeY())
+        paintEdge(g, width, Edge.BOTTOM, bottomEdgeY())
     }
 
-    private fun paintEdge(g: Graphics, width: Int, y: Int, active: Boolean) {
+    /**
+     * Draws one edge stroke *inside* the range — `y .. y + thickness` for the top, `y - thickness ..
+     * y` for the bottom — rather than centred on the boundary. The box inlay's component begins at
+     * exactly [bottomEdgeY], so a centred bottom stroke is half-painted over by it and the wash reads
+     * as open-ended; drawn inward, the stroke is the last thing before the box and closes the region.
+     * Hit-testing keeps using the boundary Ys, so the grab zones and the drag feel are unchanged.
+     */
+    private fun paintEdge(g: Graphics, width: Int, edge: Edge, y: Int) {
+        val active = hoveredEdge == edge || draggingEdge == edge
         val thickness = if (active) JBUI.scale(2) else 1
-        g.color = if (active) EDGE_ACTIVE else EDGE_IDLE
-        g.fillRect(0, y - thickness / 2, width, thickness)
+        g.color = if (active) RelayStyle.ACCENT else RelayStyle.EDGE_IDLE
+        g.fillRect(0, if (edge == Edge.TOP) y else y - thickness, width, thickness)
     }
 
     // ---- inline box (block inlay) ----------------------------------------------------------
@@ -388,11 +433,11 @@ class CommentDraft private constructor(
      * takes the keyboard.
      */
     private fun showBox(): Boolean {
-        // Short labels (comment-box-sizing feedback): the primary button is a single word — "Comment"
-        // to add (GitHub's primary review-comment verb), "Save" when editing — so it doesn't blow up
-        // the button row's width.
-        val addButton = JButton(if (editing != null) "Save" else "Comment")
-        val cancelButton = JButton("Cancel")
+        // One short label in BOTH modes (design R3): "Comment" — GitHub's primary review-comment verb —
+        // names what the button produces, which is true whether the comment is new or revised. The old
+        // "Save" when editing named the storage operation instead and made one control look like two.
+        val addButton = primaryButton("Comment")
+        val cancelButton = secondaryButton("Cancel")
         val panel = buildPanel(editor, bodyField, addButton, cancelButton)
 
         val properties = EditorEmbeddedComponentManager.Properties(
@@ -463,17 +508,50 @@ class CommentDraft private constructor(
         private const val GRAB_ZONE_DP = 4
 
         /**
-         * Light blue wash over the commented lines, à la a pull-request review selection. Internal so
-         * the shared [RangeHighlight] (the draft's gutter bar and the stored-comment hover highlight)
-         * reuses the one color, keeping the two surfaces visually identical (D3).
+         * The two client properties [com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI] consults
+         * *first*, ahead of the default-button gradient and the plain-button colors: `getBackground`
+         * reads the fill and `getButtonTextColor` the label color, each returning immediately when the
+         * property is a `Color`. Referenced by name rather than through the UI class, which is an
+         * internal platform LaF type.
+         *
+         * This is the route to a Relay-colored primary action inside an inlay. The platform's usual
+         * one — `JButton.isDefaultButton()` — is unavailable here: an inlay's panel has no root pane,
+         * so no button in it can ever be the default.
          */
-        internal val RANGE_BACKGROUND = JBColor(Color(0xDD, 0xE7, 0xFF), Color(0x2A, 0x3A, 0x5A))
+        private const val BUTTON_FILL_PROPERTY = "JButton.backgroundColor"
+        private const val BUTTON_TEXT_PROPERTY = "JButton.textColor"
 
-        /** Idle edge line — a slightly stronger blue than the wash, hinting the border is grabbable. */
-        private val EDGE_IDLE = JBColor(Color(0x88, 0xA8, 0xE0), Color(0x3E, 0x54, 0x82))
+        /**
+         * The border counterpart of the two above, read by `DarculaButtonPainter.getBorderPaint` as a
+         * `Color` and returned for an enabled button ahead of its default/plain-button branches. Without
+         * it the painter frames the accent fill in the *plain* button's gray outline (design R7).
+         */
+        private const val BUTTON_BORDER_PROPERTY = "JButton.borderColor"
 
-        /** Hovered/dragged edge line — brighter + thicker to signal the active resize grip (D4). */
-        private val EDGE_ACTIVE = JBColor(Color(0x3B, 0x74, 0xE8), Color(0x6E, 0x9B, 0xF0))
+        /** Unscaled dp gap between the two actions. Carried by a strut, not by the row's layout — see [buildPanel]. */
+        private const val ACTION_GAP_DP = 8
+
+        /**
+         * The box's primary action: one solid accent shape — fill, outline and a label color legible on
+         * it (R3/R7). The outline is set to the fill rather than left to the painter, which would
+         * otherwise ring the accent in the theme's plain-button gray.
+         */
+        private fun primaryButton(text: String): JButton = plainButton(text).apply {
+            putClientProperty(BUTTON_FILL_PROPERTY, RelayStyle.ACCENT_FILL)
+            putClientProperty(BUTTON_BORDER_PROPERTY, RelayStyle.ACCENT_FILL)
+            putClientProperty(BUTTON_TEXT_PROPERTY, RelayStyle.ACCENT_FILL_TEXT)
+        }
+
+        /** The box's secondary action: the theme's ordinary button, unfilled beside the primary one. */
+        private fun secondaryButton(text: String): JButton = plainButton(text)
+
+        /**
+         * A button that paints *only* itself. A `JButton` is opaque by default while the Darcula-family
+         * UI paints a **rounded** shape inside its bounds, so `UIManager`'s flat `Button.background`
+         * shows through at the four corners — the stray gray patch the review reported around both
+         * actions. Non-opaque, the box's own fill shows through there instead (R3).
+         */
+        private fun plainButton(text: String): JButton = JButton(text).apply { isOpaque = false }
 
         /**
          * Opens a draft to author a new comment over [startLine]..[endLine]. [onClose] is invoked
@@ -528,9 +606,15 @@ class CommentDraft private constructor(
             addButton: JButton,
             cancelButton: JButton,
         ): JComponent {
-            val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
+            // hgap 0, with the gap carried by an explicit strut between the two actions (design R8):
+            // FlowLayout reserves its hgap at BOTH ends of the row, so a non-zero hgap inset the whole
+            // row from the panel's trailing edge and the actions no longer lined up with the body
+            // field's frame above them. The ~4px that still separates a button's painted shape from
+            // that edge is the platform's own focus-ring inset, and is left alone.
+            val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
                 isOpaque = false
                 add(cancelButton)
+                add(Box.createHorizontalStrut(JBUI.scale(ACTION_GAP_DP)))
                 add(addButton)
             }
             // Base horizontal size (comment-box-sizing feedback): open the box at the shared base width
@@ -572,9 +656,12 @@ class CommentDraft private constructor(
                 }
             }.apply {
                 isOpaque = true
-                background = editor.colorsScheme.defaultBackground
-                // A bordered outer box (1px theme line + 8x12 padding) matching StoredCommentCard's
-                // outer frame, so the draft and the read-only card frame identically.
+                // The box is the card's *editing state*, not a different kind of panel (design R2):
+                // same UI-surface fill, same 1px outline, same 8x12 padding, and — like the card — no
+                // accent edge of its own. The two occupy the same screen position for the same comment
+                // (the card is suppressed while its box is open), so any difference between them would
+                // read as the object changing identity when the user clicks Edit.
+                background = RelayStyle.surface()
                 border = JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1), JBUI.Borders.empty(8, 12))
                 // Show a normal arrow (not the editor's text I-beam) while hovering the box chrome.
                 cursor = Cursor.getDefaultCursor()
