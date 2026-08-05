@@ -8,10 +8,15 @@
 - **Plugin ID:** `io.github.zerlok.agentsessionrelay`
 - **Language:** Kotlin, IntelliJ Platform Plugin Template (Gradle)
 - **License:** MIT
-- **Status:** pre-implementation. This doc is the agreed **technical** design — structure,
-  APIs, and cross-cutting mechanics. **Product requirements** (capture modes, the user flow,
-  scope phasing, per-capability behavior) live in the OpenSpec change under
-  `openspec/changes/`; this doc points to them rather than restating them.
+- **Status:** MVP implemented and published, plus batch persistence. This doc is the agreed
+  **technical** design — structure, APIs, and cross-cutting mechanics. **Product requirements**
+  (capture modes, the user flow, scope phasing, per-capability behavior) live in the OpenSpec
+  capability specs under `openspec/specs/` (in-flight proposals under `openspec/changes/`);
+  this doc points to them rather than restating them.
+- **Reading rule — design intent vs. shipped code.** Anything this doc describes that is *not*
+  built is tagged **[NOT IMPLEMENTED]**. Untagged prose describes code that exists today.
+  Preserve that invariant when editing: an untagged claim here is read as a guarantee, and a
+  stale one silently becomes a false guarantee.
 
 ---
 
@@ -28,9 +33,9 @@ entry point into, or a transport out of, that one surface.
 - own file sync between hosts — it reads and writes the **local** filesystem only. A
   remote session is responsible for syncing those files with the local host (e.g. via
   mutagen). Relay never uses git as a cross-host transport.
-- bundle the IDE's GitHub/GitLab review-thread UI or `com.intellij.collaboration.*`
-  (internal/unstable/unlicensed). It builds its own comment model on trusted
-  editor APIs.
+- bundle the IDE's GitHub/GitLab review-thread UI or depend on `com.intellij.collaboration.*`
+  (Apache-2.0, but `@ApiStatus.Experimental`). It builds its own comment model on stable
+  editor APIs — see §8 for what that does and does not rule out.
 
 **Relay's original value:** the batched, line-anchored comment model + the
 agent-readable export + delivery to an idle agent — none of which the platform
@@ -77,7 +82,8 @@ In this scheme:
 
 ```
   Comment ── a body linked to a Subject (what the comment is about)
-     │  { id, subject, anchorText?, contextHash?, body, status, RangeMarker? }
+     │  { id, subject, anchorText?, contextHash?, body, status }
+     │  (no live RangeMarker — position lives in the view; see §3.2)
      │
      │  Subject ─ one of:
      │    Line(path, n) · LineRange(path, start, end) · File(path)
@@ -121,8 +127,9 @@ fixed):
 
 Relay is built as strict, one-directional layers. **The view depends only on a logic API
 and an event topic; it never holds a storage handle.** Logic mediates every read and
-write; storage sits behind it and is swappable (in-memory today, persistent later)
-without the view or logic knowing.
+write; storage sits behind it and is swappable without the view or logic knowing — a claim
+since validated in practice: the in-memory Map was replaced by a `PersistentStateComponent`
+in one wiring line, touching neither layer above it.
 
 ```
   depends inward ──▶                             seam = MessageBus Topic
@@ -136,24 +143,24 @@ without the view or logic knowing.
       no Swing, no editor imports
   STORAGE
     ReviewBatchStorage   — dumb CRUD over records
-      in-memory Map now → PersistentStateComponent later
+      PersistentReviewBatchStorage (workspace.xml); in-memory impl kept for tests
   DOMAIN  (pure Kotlin, serializable, no platform imports)
-    ReviewComment { id, text, subject, status, anchorText?, contextHash? }
+    ReviewComment { id, body, subject, status, anchorText?, contextHash? }
     Subject = Line | LineRange | File | Files | Project
 ```
 
 | Layer      | Home                          | Platform primitive                                                                                 |
 |------------|-------------------------------|----------------------------------------------------------------------------------------------------|
 | Domain     | pure Kotlin records           | —                                                                                                  |
-| Storage    | `ReviewBatchStorage`          | `PersistentStateComponent` (later)                                                                 |
+| Storage    | `ReviewBatchStorage`          | `PersistentStateComponent`                                                                         |
 | Logic      | `ReviewBatchService`          | `@Service(PROJECT)`                                                                                |
 | Seam       | `ReviewBatchListener`         | `MessageBus` `Topic`                                                                               |
 | View       | overlay / tool window / inlay | `EditorFactoryListener`, `DocumentMarkupModel`, `Inlay`, `GutterIconRenderer`, `ToolWindowFactory` |
 | Controller | actions                       | `AnAction`                                                                                         |
 
 **Storage is a separate layer from logic, not a private field of it.** The abstraction it
-hides — *how* records are held — must not leak up into the logic that mediates them, so the
-persistence swap (Map → `PersistentStateComponent`) touches storage alone.
+hides — *how* records are held — must not leak up into the logic that mediates them, which is
+why the persistence swap could touch storage alone.
 
 ### 3.2 Inert data vs. live objects
 
@@ -173,7 +180,7 @@ stays pure while in-IDE edits still track — with no storage write per keystrok
 Editor rendering is **retained-mode**: register a markup/inlay object once and the platform
 repaints it. The view maintains live objects, not frames, and reconciles them **by diff** on store events (add new,
 dispose removed, leave the rest). Key rules (per-decision detail in [
-`comment-batch/design.md`](../openspec/changes/comment-batch/design.md)):
+`comment-batch/design.md`](../openspec/changes/archive/2026-07-05-comment-batch/design.md)):
 
 - **Ownership is per-editor.** An `EditorReviewOverlay` per editor holds
   `Map<CommentId, …>`, created on `EditorFactoryListener.editorCreated` and freed on
@@ -186,19 +193,25 @@ dispose removed, leave the rest). Key rules (per-decision detail in [
   project `@Service` so they release on dynamic plugin unload too; dispose them in
   `editorReleased`. Never parent to `Project` / `Application` directly.
 - **Highlight & gutter on the document markup** (`DocumentMarkupModel.forDocument`, shared
-  across splits); **inlays are per-editor** (`InlayModel` lives on the editor).
-- **Invalidation → orphaned.** If the anchored line is deleted the highlighter/inlay go
-  invalid; mark the comment stale/orphaned (keep it in the tool window, drop its markers)
-  rather than render a dead object.
+  across splits); **inlays are per-editor** (`InlayModel` lives on the editor). These two
+  scopes differ, so a comment's markers must be owned **once per document** even though cards
+  are owned per editor — otherwise N splits of one file each add their own highlighter for the
+  same comment. *Known deviation: the shipped `EditorReviewOverlay` adds markers per overlay,
+  i.e. per editor, so a split file currently carries duplicate gutter bars.*
+- **Invalidation → orphaned. [NOT IMPLEMENTED]** If the anchored line is deleted the
+  highlighter/inlay go invalid; the intent is to mark the comment stale/orphaned (keep it in
+  the tool window, drop its markers) rather than render a dead object. Today an invalid marker
+  is silently skipped when live positions are read, and no status is ever changed.
 
 ---
 
-## 4. Capture modes & user flow — see the OpenSpec change
+## 4. Capture modes & user flow — see the OpenSpec specs
 
 This split is a project rule (also stated in the README): **product requirements** — what
 the system is *for the user* (capture modes, the canonical review → submit flow, per-capability
-behavior) — live in the OpenSpec change under `openspec/changes/` (`review-annotation`,
-`review-delivery`). **This doc** describes what the system is in *technical* terms — the
+behavior) — live in the OpenSpec capability specs under `openspec/specs/` (`review-annotation`,
+`review-batch`, `review-export`, `review-delivery`), with in-flight work under
+`openspec/changes/`. **This doc** describes what the system is in *technical* terms — the
 high-level solution and why. It points at the specs rather than restating them.
 
 The one architectural note: **capture mode is a pluggable seam for *how content enters the
@@ -225,9 +238,9 @@ frame-activation refresh.
 ### 5.2 Anchor drift — defense in depth, mostly free
 
 ```
-  in-IDE edits        ──▶  RangeMarker tracks automatically
-  out-of-IDE (agent)  ──▶  re-anchor on VFS refresh via anchorText + contextHash
-  still ambiguous     ──▶  mark comment "stale", surface to human — never mis-point
+  in-IDE edits        ──▶  RangeMarker tracks automatically                        [shipped]
+  out-of-IDE (agent)  ──▶  re-anchor on VFS refresh via anchorText + contextHash   [NOT IMPLEMENTED]
+  still ambiguous     ──▶  mark comment "stale", surface to human — never mis-point [NOT IMPLEMENTED]
 ```
 
 Export is the deliverable and happens at submit time, so **loop discipline**
@@ -235,6 +248,14 @@ Export is the deliverable and happens at submit time, so **loop discipline**
 defense; the content/context hash is the safety net. The data model therefore
 carries `anchorText` + `contextHash` from day one, but Tier 1 needs no fuzzy
 matching.
+
+**[NOT IMPLEMENTED] — the safety net is captured but never armed.** `anchorText` and
+`contextHash` are recorded when a comment is added and are persisted, but **no code reads them
+back**, and `CommentStatus.STALE` / `ORPHANED` are never assigned by any path. At the sync
+points a marker's current offsets are trusted unconditionally. So when an agent rewrites a file
+between annotate and submit, the exported `@path#L` reference can point at unrelated code with
+no warning to the user and no signal to the agent. Until tier 2 lands, **loop discipline is the
+only defense, not the primary one.**
 
 ### 5.3 Threading / EDT
 
@@ -249,18 +270,26 @@ matching.
 
 ### 5.4 Persistence
 
-Deferred (not MVP): the in-memory `ReviewBatchStorage` is swapped for a
-`PersistentStateComponent` behind the same logic API, stored per-user in `workspace.xml`
-(`StoragePathMacros.WORKSPACE_FILE`) — these are private, uncommitted drafts. Two
-constraints the plan must honor:
+Shipped: `PersistentReviewBatchStorage` implements `ReviewBatchStorage` behind the same logic
+API, stored per-user in `workspace.xml` (`StoragePathMacros.WORKSPACE_FILE`) — these are
+private, uncommitted drafts. Two constraints it honors:
 
 - **Serialize a flat DTO, not the domain type.** `xmlb` needs a no-arg constructor and
   mutable (`var`) bean properties and does not serialize a Kotlin sealed hierarchy — so
-  persist a flat `PersistedComment` (`subjectKind` + url + start/end + text + anchor data)
+  persist a flat `PersistedComment` (`subjectKind` + url + start/end + body + anchor data)
   with `@XCollection`, mapped to/from the sealed `Subject` at the boundary.
-- **Re-anchor lazily, off the load path.** `loadState` runs early (pre-index) and loads raw
-  records only; resolve the url and re-anchor by `anchorText` + `contextHash` when the
-  file's editor opens (marking ambiguous comments stale) — never in `loadState`.
+- **Two platform rules the unit tests cannot reach**, so they are guarded reflectively:
+  storage config is read only from `@State` (a class-level `@Storage` alone is inert), and
+  `getState()` runs off-EDT unless `getStateRequiresEdt = true` — required here because
+  mutations are EDT-only and unsynchronized.
+
+**Re-anchor lazily, off the load path. [NOT IMPLEMENTED]** The intent: `loadState` runs early
+(pre-index) and loads raw records only; resolve the url and re-anchor by `anchorText` +
+`contextHash` when the file's editor opens, marking ambiguous comments stale — never in
+`loadState`. Today `loadState` is correctly inert, but nothing re-anchors afterwards: a
+restored comment whose lines no longer exist is silently clamped into the current document by
+the overlay, and that clamped position is then written back over the recorded one at the next
+sync point. See §5.2.
 
 ---
 
@@ -289,10 +318,9 @@ core — **not in the MVP**.
 
 ## 7. Open items / assumptions to verify
 
-1. **Build tool:** scaffold from the IntelliJ Platform Plugin Template (**Gradle**) for the
-   MVP — it bakes in the verifier, `runIde`, and Marketplace publishing. A Maven build was
-   floated; revisit only if a concrete need appears (the template is Gradle-only, so Maven
-   means dropping the template).
+1. ~~**Build tool.**~~ **Resolved:** Gradle, via the IntelliJ Platform Plugin Template
+   (IntelliJ Platform Gradle Plugin 2.x). Maven was floated and dropped — the template is
+   Gradle-only. Revisit only if a concrete need appears.
 2. **Plan-capture hook (assumption):** capturing a Claude plan on the sandbox
    likely uses a `PreToolUse` hook matching `ExitPlanMode` reading
    `tool_input.plan`, written to a synced path. *Verify exact event/payload
@@ -304,9 +332,9 @@ core — **not in the MVP**.
    right terminal widget (the one Relay launched, or the active/selected one via
    `TerminalToolWindowManager`). Decoupling from the launcher is a small design
    point for the typed-delivery follow-on.
-5. **Marketplace display name** uniqueness for "Agent Session Relay" — check before
-   publishing; the plugin ID (`io.github.zerlok.agentsessionrelay`) is independent of the
-   display name.
+5. ~~**Marketplace display name** uniqueness.~~ **Resolved:** published as "Agent Session
+   Relay" (Marketplace plugin 32797). The plugin ID (`io.github.zerlok.agentsessionrelay`) is
+   independent of the display name.
 
 ---
 
@@ -320,7 +348,19 @@ core — **not in the MVP**.
 (`LineMarkerProvider` is pull/PSI-driven — right for static code markers, *not* for the
 user-authored, mutable comment markers, which ride a `GutterIconRenderer` on the highlighter.)
 
-**Avoid:** the bundled GitHub/GitLab review-thread UI and
-`com.intellij.collaboration.*` (internal, unstable, not licensed for reuse).
+**Don't depend on:** the bundled GitHub/GitLab review-thread UI and
+`com.intellij.collaboration.*`. The reason is **API stability, not licensing** — the module is
+Apache-2.0 like the rest of intellij-community, and its code-review editor package is
+`@ApiStatus.Experimental` (not `@Internal`). Relay owns its comment model rather than binding
+it to an experimental API it does not control. *Also unverified: whether
+`intellij.platform.collaborationTools` is bundled in PyCharm Community 2024.2 at all.*
 
-**Study freely:** Plannotator (Apache-2.0/MIT).
+This is a rule about **taking a dependency**, not about reading the code. The GitHub and
+GitLab plugins are the reference implementations of an in-editor review surface, and several
+things Relay needs sit in the **stable platform**, not in that module — notably
+`Editor.addComponentInlay` / `ComponentInlayRenderer` / `ComponentInlayAlignment`
+(`platform-impl`), `EditorScrollingPositionKeeper`, `ActiveGutterRenderer` +
+`reserveLeftFreePaintersAreaWidth`, and `DocumentTracker` / `LineStatusTrackerBase`
+(platform VCS) for mapping a line across an out-of-IDE rewrite. Using those is in-charter.
+
+**Study freely:** the GitHub/GitLab plugins (Apache-2.0), Plannotator (Apache-2.0/MIT).
