@@ -230,7 +230,12 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
 
 ## 6. The two remaining running-IDE questions (4 and 7)
 
-- [ ] 6.1 **Open Question 4 — collateral damage from shadowing `FILE_EDITOR`.** With the comment box
+- [x] 6.1 **Open Question 4 — collateral damage from shadowing `FILE_EDITOR`.** (**Checked by the
+      maintainer, 2026-08-05: Find Usages, Go to Declaration and Split all behave normally with the box
+      focused — no regression found.** Not exercised: File Structure (Ctrl+F12), Select In (Alt+F1),
+      Open in Right Split, and `$FilePath$` macro expansion in External Tools / run configs. Nothing
+      suggests those differ — the three checked cover the same shadowing path — so this is recorded as
+      answered-in-practice rather than exhaustively.) With the comment box
       focused (caret inside the body), invoke each of: Find Usages in File (Ctrl+F7), File Structure
       (Ctrl+F12), Select In (Alt+F1), Open in Right Split, a split-editor action, and an External Tool
       or run config whose command line uses a `$FilePath$`-style macro. These are the user-invocable

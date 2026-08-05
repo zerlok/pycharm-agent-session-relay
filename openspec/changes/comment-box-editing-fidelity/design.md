@@ -309,10 +309,13 @@ must be answered in a running IDE and the answer recorded back into this section
 > in tasks.md 2.4 stays unbuilt). Question 1 also surfaced **defect C**, which the checklist did not
 > cover: in *edit* mode the first undo wiped the stored body. That is D4 below.
 >
-> **Questions 4 and 7 are still open** — neither was part of what was exercised. 4 (does the box's
-> `FILE_EDITOR` regress Save All / Find in Files with the box focused?) and 7 (is the deferred
-> `revalidate()` load-bearing at all?) are both still worth answering; 7 in particular could delete
-> half this change.
+> **Question 4 answered in practice (2026-08-05, by the maintainer):** with the box focused, Find
+> Usages, Go to Declaration and Split all behave normally — no regression. File Structure, Select In,
+> Open in Right Split and macro expansion were not exercised, but they resolve `FILE_EDITOR` by the
+> same shadowing path the three checked ones do, so nothing suggests they differ.
+>
+> **Question 7 is still open** — is the deferred `revalidate()` load-bearing at all? It could delete
+> half this change; the procedure and decision rule are in tasks.md 6.2/6.3.
 
 > **Answered statically (remediation round).** The original Open Question 1 — "does `setNull` let
 > `BasicUiDataRule` re-derive `FILE_EDITOR`?" — is decidable from `PreCachedDataContext$MySink.set`
