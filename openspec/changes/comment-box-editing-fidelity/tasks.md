@@ -227,3 +227,28 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
 - [ ] 5.5 Running-IDE re-check of the reported flow: save a comment, reopen it, press Ctrl+Z with
       nothing typed → nothing happens and the body stays; then type, Ctrl+Z → the typing is undone down
       to the stored body and no further. Record the outcome here.
+
+## 6. The two remaining running-IDE questions (4 and 7)
+
+- [ ] 6.1 **Open Question 4 — collateral damage from shadowing `FILE_EDITOR`.** With the comment box
+      focused (caret inside the body), invoke each of: Find Usages in File (Ctrl+F7), File Structure
+      (Ctrl+F12), Select In (Alt+F1), Open in Right Split, a split-editor action, and an External Tool
+      or run config whose command line uses a `$FilePath$`-style macro. These are the user-invocable
+      actions that read `PlatformCoreDataKeys.FILE_EDITOR` (enumerated in design.md Open Question 4).
+      Pass = each is either disabled or acts on the host file as usual; fail = a wrong target, a silent
+      no-op where the action normally works, or an exception. **Check
+      `build/idea-sandbox/PC-2024.2.5/log/idea.log` afterwards** — the likely failure is a mis-cast or
+      a null file deep in an action, which surfaces there rather than on screen.
+- [ ] 6.2 **Open Question 7 — is the deferred `revalidate()` load-bearing?** Make `scheduleRemeasure`'s
+      body empty (leave everything else in place), rebuild, and in the running IDE type Enter in the
+      box, type one long unbroken line until it soft-wraps, and delete body lines. Watch whether the
+      *code below the box* reflows on the keystroke in each case. Test all three separately: a typed
+      newline changes the body's preferred height at the document change, whereas a soft-wrap is
+      recomputed inside the inner editor and may not be reflected until later — so the newline case can
+      pass without the listener while the wrap case fails.
+- [ ] 6.3 Act on 6.2: if all three still reflow on the keystroke, **delete defect B's half** — the
+      `DocumentListener`, `scheduleRemeasure`, the `boxPanel` field and its two tests — and narrow the
+      spec's same-edit-height clause to what the platform does on its own. (Keep `Disposer.dispose` in
+      `create()`; it is correct regardless.) If only the soft-wrap case fails, keep the listener and
+      narrow D2-R's justification to that case in one sentence. If the box does not grow at all
+      without it, D2-R stands as written.

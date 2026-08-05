@@ -263,7 +263,9 @@ when authoring, the stored body when editing — which is what the spec now requ
 ## Risks / Trade-offs
 
 - **[Overriding `FILE_EDITOR` hides the host file editor from *every* file-editor-scoped action while
-  the box is focused]** (VCS "Annotate", "Close tab", editor-tab actions…) → accepted and largely
+  the box is focused]** (Find Usages in File, File Structure, Select In, split-editor actions — the
+  enumerated set is in Open Question 4; VCS "Annotate" and "Close tab", named here originally, turn
+  out not to read the key at all) → accepted and largely
   intended: while the user is typing a comment those actions should not silently act on the host
   file. Under D1-R they now see the box's own `TextEditor` rather than nothing, which is the more
   honest answer for an action that asks "which editor is the user in?". `PROJECT` and `VIRTUAL_FILE`
@@ -329,7 +331,21 @@ must be answered in a running IDE and the answer recorded back into this section
 3. Does the box also *shrink* promptly when body lines are deleted (down to the `BODY_ROWS` floor),
    or does only growth propagate?
 4. Does pointing `FILE_EDITOR` at the box's own editor regress any action the user reasonably invokes
-   with the box focused (Save All, Find in Files, the tool window's own actions)?
+   with the box focused? The candidate set is no longer a guess: scanning the 2024.2.5 platform jars
+   for constant-pool references to `PlatformCoreDataKeys.FILE_EDITOR` yields 82 classes, of which the
+   user-invocable actions are **Find Usages in File** (`FindUsagesInFileAction`, Ctrl+F7), **File
+   Structure** (`ViewStructureAction` / `FileStructurePopup`, Ctrl+F12), **Select In** (Alt+F1,
+   `SelectInContextImpl`), **Open in Right Split**, the **split-editor** actions
+   (`ChangeEditorSplitActionsKt`), and **path-macro expansion** for External Tools / run configs
+   (`MacroManager`) — plus `UndoRedoAction`, which is the intended target and already verified.
+   Save All, Find in Files, VCS Annotate and Close Tab — this section's original examples — do **not**
+   read the key; they go through `FileEditorManager` or other keys, so they are unaffected. The
+   mechanism that would break the six above: `TextEditorProvider$EditorWrapper.getFile()` is
+   `FileDocumentManager.getFile(document)`, and the body document is an `EditorFactory` document with
+   no `VirtualFile`, so those actions see a `FileEditor` whose file is null — while `VIRTUAL_FILE` and
+   `PROJECT`, which this panel does not shadow, still resolve to the host file. That inconsistency is
+   what to look for, and a mis-cast would surface as an exception in the sandbox log rather than as
+   visible misbehaviour.
 5. Does the undo scoping and the live resize both still hold after an edge-drag rebuild
    (`hideBox`/`showBox`), where the panel — and with it the data provider — is a new instance?
 6. Does a validate pass per keystroke introduce perceptible typing latency in a large file, i.e. is
