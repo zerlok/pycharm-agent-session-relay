@@ -294,19 +294,54 @@ or to edit an existing one — SHALL close any box that is already open.
 ### Requirement: Surface the captured comment on submit
 
 On submit, the box SHALL close and the captured comment SHALL be added to the pending batch as a
-`ReviewComment` — carrying the file path, the target line range, the body, a live `RangeMarker`
-created from the range, the anchor text, and a context hash. A stored-comment position marker SHALL
-then be maintained on the commented line range as the live position source and as the host of the
-resting gutter bar, **without** a visible gutter icon; an always-expanded read-only inline card
-carrying the comment body SHALL appear under that range; the comment SHALL appear in the tool window;
-and the comment's range SHALL be revealed on hover of its card (per "Highlight a stored comment's
-range on card hover"). (The baseline's report-only behavior — a confirmation notification plus a log
-entry — is superseded by this persistence.)
+`ReviewComment` — carrying the file path, the target line range, the body, the anchor text, and a
+context hash. The record itself SHALL hold no live platform object (see `review-batch` "Represent a
+comment with an open subject and anchoring data").
+
+The target line range stored on submit SHALL be the range the box's **live range highlight** occupies
+at the moment of submit, not the range that was computed when the box was opened. The highlight is
+the box's position source while the box is open, so any shift it absorbs — an edit elsewhere in the
+document, a refresh of the file from disk — SHALL be reflected in the stored comment. Submitting SHALL
+remain safe when the document has shrunk below the box's original range: the comment SHALL be stored
+at the highlight's current range rather than failing.
+
+The anchor text and context hash SHALL be captured from that same live range, so a comment's anchoring
+data always describes the lines it was actually stored against.
+
+A stored-comment position marker SHALL then be maintained on the commented line range as the live
+position source and as the host of the resting gutter bar, **without** a visible gutter icon; an
+always-expanded read-only inline card carrying the comment body SHALL appear under that range; the
+comment SHALL appear in the tool window; and the comment's range SHALL be revealed on hover of its
+card (per "Highlight a stored comment's range on card hover").
+
+That position marker SHALL be maintained **once per document**, not once per open editor. A file shown
+in more than one editor — a split, or a second window — SHALL therefore carry exactly one marker per
+comment, and the resting gutter bar SHALL be painted once in each of those editors rather than
+stacked. Inline cards remain per-editor, since an inlay belongs to the editor that shows it.
 
 #### Scenario: Submitting adds the comment to the batch
 
 - **WHEN** the user submits a comment on a line range with a non-empty body
 - **THEN** the box closes and a `ReviewComment` for that range is added to the store
+
+#### Scenario: Submit stores the live range, not the opening range
+
+- **WHEN** the box is open over lines 40–42, the document is then changed so that the box's range
+  highlight moves to lines 45–47, and the user submits
+- **THEN** the stored comment is anchored to lines 45–47, and its anchor text is the text of those
+  lines
+
+#### Scenario: Submit survives the document shrinking under the box
+
+- **WHEN** the box is open over a range near the end of the file and the document is replaced by a
+  shorter one before the user submits
+- **THEN** the comment is stored at the range the live highlight now occupies, and no error is raised
+
+#### Scenario: One marker per document across splits
+
+- **WHEN** a file with a stored comment is shown in two editor splits
+- **THEN** exactly one position marker exists for that comment, and each split shows a single resting
+  gutter bar over the commented range
 
 #### Scenario: No stored-comment gutter icon appears
 
@@ -340,6 +375,10 @@ remove that additional highlight when the pointer leaves the card, leaving the r
 place. The highlighted range SHALL reflect the comment's current (live) position, and the resting
 gutter bar SHALL track the comment's position as the file is edited in the IDE.
 
+A comment marked `ORPHANED` — one whose recorded range does not exist in the current document — SHALL
+display neither a resting gutter bar nor a card, since it has no range to point at. It remains listed
+in the tool window.
+
 #### Scenario: Commented lines are marked in the gutter at rest
 
 - **WHEN** a stored comment exists for a line range in an open editor and no card is hovered
@@ -368,6 +407,12 @@ gutter bar SHALL track the comment's position as the file is edited in the IDE.
 - **WHEN** lines are inserted above a commented range, shifting its live position
 - **THEN** the resting gutter bar moves with the range, matching the position the card's hover
   highlight would show
+
+#### Scenario: An orphaned comment paints nothing in the editor
+
+- **WHEN** a stored comment's recorded range does not exist in the open document
+- **THEN** no resting gutter bar and no card are rendered for it, and it is still listed in the tool
+  window
 
 ### Requirement: Refresh synced files before review
 
