@@ -21,7 +21,11 @@ import java.nio.file.Path
  *
  * 1. Flushes current in-IDE positions into the store (ARCHITECTURE §3.2 export sync point): reads
  *    each open comment's live marker range via [EditorReviewOverlayService.currentPositions] and
- *    pushes it through [ReviewBatchService.updatePosition], so the export reflects in-IDE edits.
+ *    pushes it through [ReviewBatchService.updatePosition], so the export reflects in-IDE edits — then
+ *    verifies each comment's anchor via [EditorReviewOverlayService.validateAnchors], so a reference
+ *    whose underlying text changed is exported flagged rather than as verified fact (ARCHITECTURE
+ *    §5.2). Export is the only sync point that validates: it is the moment Relay asserts a line number
+ *    to a third party.
  * 2. Plans the submit with the pure [ReviewDelivery] (empty-vs-nonempty + the exact text). An empty
  *    batch is a no-op: nothing is written and the user is told there is nothing to submit.
  * 3. Writes `REVIEW.md` at [Project.getBasePath] **off the EDT** ([Task.Backgroundable], ARCHITECTURE
@@ -42,9 +46,11 @@ class SubmitReviewAction :
         // Flush live positions into the store before reading the batch (ARCHITECTURE §3.2). Both the
         // read and the updatePosition commands run on the EDT — this action fires on the EDT.
         val service = ReviewBatchService.getInstance(project)
-        for ((id, subject) in EditorReviewOverlayService.getInstance(project).currentPositions()) {
+        val overlayService = EditorReviewOverlayService.getInstance(project)
+        for ((id, subject) in overlayService.currentPositions()) {
             service.updatePosition(id, subject)
         }
+        overlayService.validateAnchors()
 
         val basePath = project.basePath
         if (basePath == null) {

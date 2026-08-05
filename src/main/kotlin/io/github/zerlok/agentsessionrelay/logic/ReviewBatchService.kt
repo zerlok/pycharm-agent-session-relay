@@ -4,6 +4,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import io.github.zerlok.agentsessionrelay.domain.CommentId
+import io.github.zerlok.agentsessionrelay.domain.CommentStatus
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.storage.PersistentReviewBatchStorage
@@ -75,6 +76,26 @@ class ReviewBatchService(private val project: Project) {
         val existing = storage.get(id) ?: return
         if (existing.body == body) return
         val updated = existing.copy(body = body)
+        storage.update(updated)
+        publisher().commentUpdated(updated)
+    }
+
+    /**
+     * The anchor-status seam, mirroring [updatePosition] / [updateBody] (design D4): replaces a stored
+     * comment's [CommentStatus] in place, preserving its id, subject, body, and anchoring data, then
+     * publishes the change. Set by the presentation layer when a comment's recorded range stops fitting
+     * its document ([CommentStatus.ORPHANED]) and by the export sync point when its anchor text no
+     * longer matches ([CommentStatus.STALE]).
+     *
+     * No-op — with **no event** — if the id is unknown or the status is unchanged. That idempotence is
+     * load-bearing, not just an optimization: the view sets a status from inside its own reconcile, so
+     * the resulting `commentUpdated` re-enters that reconcile, and it is this no-op that makes the
+     * second pass find nothing to do and the cascade terminate.
+     */
+    fun updateStatus(id: CommentId, status: CommentStatus) {
+        val existing = storage.get(id) ?: return
+        if (existing.status == status) return
+        val updated = existing.copy(status = status)
         storage.update(updated)
         publisher().commentUpdated(updated)
     }

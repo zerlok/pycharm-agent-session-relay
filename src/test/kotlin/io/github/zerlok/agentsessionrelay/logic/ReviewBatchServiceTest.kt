@@ -144,6 +144,44 @@ class ReviewBatchServiceTest : BasePlatformTestCase() {
         assertTrue(probe.updated.isEmpty())
     }
 
+    fun `test updateStatus rewrites the stored status and publishes commentUpdated preserving everything else`() {
+        val comment = service.addComment(
+            Subject.LineRange("file:///a.py", 4, 6), "b", anchorText = "def f()", contextHash = "cafe",
+        )
+
+        service.updateStatus(comment.id, CommentStatus.STALE)
+
+        val stored = service.comments().single()
+        assertEquals(CommentStatus.STALE, stored.status)
+        assertEquals(comment.id, stored.id)
+        assertEquals(comment.subject, stored.subject)
+        assertEquals("b", stored.body)
+        assertEquals("def f()", stored.anchorText)
+        assertEquals("cafe", stored.contextHash)
+        assertEquals(listOf(stored), probe.updated)
+    }
+
+    /**
+     * The idempotence design D4's reentrancy contract rests on: a status the comment already has is a
+     * no-op that publishes NOTHING, so a status set from inside a view's reconcile cannot cascade.
+     */
+    fun `test updateStatus to the same status does not republish`() {
+        val comment = service.addComment(Subject.Line("file:///a.py", 3), "x")
+        service.updateStatus(comment.id, CommentStatus.ORPHANED)
+        assertEquals(1, probe.updated.size)
+
+        service.updateStatus(comment.id, CommentStatus.ORPHANED)
+
+        assertEquals(1, probe.updated.size)
+    }
+
+    fun `test updateStatus on an unknown id is a silent no-op`() {
+        service.updateStatus(io.github.zerlok.agentsessionrelay.domain.CommentId("nope"), CommentStatus.STALE)
+
+        assertTrue(service.comments().isEmpty())
+        assertTrue(probe.updated.isEmpty())
+    }
+
     fun `test comments preserves insertion order`() {
         val a = service.addComment(Subject.Line("file:///a.py", 1), "a")
         val b = service.addComment(Subject.Line("file:///b.py", 2), "b")

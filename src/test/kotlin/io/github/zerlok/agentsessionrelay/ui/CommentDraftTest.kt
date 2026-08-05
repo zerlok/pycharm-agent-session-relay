@@ -8,6 +8,7 @@ import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.CommandProcessor
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
@@ -21,6 +22,7 @@ import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.Component
 import java.awt.Container
+import javax.swing.JButton
 import javax.swing.JComponent
 
 /**
@@ -253,6 +255,62 @@ class CommentDraftTest : BasePlatformTestCase() {
         assertEmpty(blockInlays())
     }
 
+    // -- Submit stores the box's LIVE range (trustworthy-comment-anchors, design D8) --
+
+    /**
+     * The box's range highlight is its declared position source, so what it absorbs while the box is
+     * open is what gets stored. Here whole lines are inserted above the open box: the highlight moves
+     * down two lines, and the submitted comment — subject *and* anchor text — describes where the
+     * highlight now is, not the lines that were under it when the box opened.
+     */
+    fun `test submit stores the range the highlight moved to, with matching anchor text`() {
+        val service = ReviewBatchService.getInstance(project)
+        service.clear()
+        val url = myFixture.file.virtualFile.url
+        controller.open(myFixture.editor, 1, 2)
+        val submit = commentButton()
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.insertString(0, "top0\ntop1\n")
+        }
+        setBody("still about these lines")
+        submit.doClick()
+
+        val stored = service.comments().single()
+        assertEquals(Subject.LineRange(url, 3, 4), stored.subject)
+        assertEquals("line1\nline2", stored.anchorText)
+    }
+
+    /**
+     * The crash this removes: the box was open near the end of the file, the document was replaced by a
+     * shorter one (a refresh from disk after an agent rewrote it), and submit called
+     * `getLineStartOffset` with a line that no longer existed. Submitting now stores whatever range the
+     * live highlight occupies in the *current* document, and raises nothing.
+     */
+    fun `test submit survives the document shrinking under the box`() {
+        val service = ReviewBatchService.getInstance(project)
+        service.clear()
+        controller.open(myFixture.editor, 4, 5)
+        val submit = commentButton()
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.setText("only\nline\n")
+        }
+        setBody("the file got shorter")
+        submit.doClick()
+
+        val stored = service.comments().single()
+        val lastLine = editor.document.lineCount - 1
+        val range = when (val subject = stored.subject) {
+            is Subject.Line -> subject.line to subject.line
+            is Subject.LineRange -> subject.startLine to subject.endLine
+            else -> throw AssertionError("expected a line-anchored subject, got $subject")
+        }
+        val (start, end) = range
+        assertTrue("stored range $start..$end must exist in the ${lastLine + 1}-line document", start in 0..lastLine)
+        assertTrue(end in start..lastLine)
+    }
+
     // -- helpers ------------------------------------------------------------------------------
 
     /**
@@ -310,6 +368,14 @@ class CommentDraftTest : BasePlatformTestCase() {
 
     private fun bodyField(): EditorTextField =
         find(boxInlay().renderer as Component) { it is EditorTextField } as EditorTextField
+
+    /**
+     * The box's primary action, grabbed while the box is still whole so a later document change cannot
+     * take the route to it away — clicking it is the user's own submit path, so the tests drive that
+     * rather than a seam added for them.
+     */
+    private fun commentButton(): JButton =
+        find(boxInlay().renderer as Component) { it is JButton && it.text == "Comment" } as JButton
 
     /**
      * Forces the body's inner editor into existence and returns it. [EditorTextField] builds it when

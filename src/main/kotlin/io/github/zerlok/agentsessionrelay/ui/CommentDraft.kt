@@ -9,7 +9,6 @@ import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
@@ -210,16 +209,19 @@ class CommentDraft private constructor(
         val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return
         val document = editor.document
 
+        val (startLine, endLine) = liveRange()
         val subject =
-            if (start == end) Subject.Line(file.url, start)
-            else Subject.LineRange(file.url, start, end)
+            if (startLine == endLine) Subject.Line(file.url, startLine)
+            else Subject.LineRange(file.url, startLine, endLine)
         val service = ReviewBatchService.getInstance(project)
 
         val editing = editing
         if (editing == null) {
-            // New comment: capture the anchor seeds and add it (baseline behavior).
-            val anchorText = document.getText(TextRange(rangeStartOffset(document), rangeEndOffset(document)))
-            val contextHash = Anchoring.contextHash(contextWindow(document))
+            // New comment: capture the anchor seeds and add it (baseline behavior). Both seeds are read
+            // from the SAME live range as the subject above, so a comment's anchoring data always
+            // describes the lines it was actually stored against.
+            val anchorText = document.getText(TextRange(rangeStartOffset(startLine), rangeEndOffset(endLine)))
+            val contextHash = Anchoring.contextHash(contextWindow(startLine, endLine))
             service.addComment(subject, body.trim(), anchorText, contextHash)
         } else {
             // Edit: an in-place update of the same comment (design D1/D4). Both commands publish
@@ -229,14 +231,39 @@ class CommentDraft private constructor(
         }
     }
 
-    private fun rangeStartOffset(document: Document): Int = document.getLineStartOffset(start)
+    /**
+     * The line range this draft is sitting on **right now** (design D8) — the range everything a submit
+     * stores is derived from. [highlighter] is the draft's declared position source and absorbs every
+     * document change the box lives through (an edit elsewhere in the file, a refresh from disk), so
+     * reading it here is what makes the stored comment describe the lines the user is actually looking
+     * at rather than the ones that were under the box when it opened.
+     *
+     * The fallback for an invalidated highlighter clamps [start]/[end] into the current document. It is
+     * the one clamp left in Relay, and it is a different animal from the one design D4 removed: it
+     * bounds a comment being *created now* — the alternative being an [IndexOutOfBoundsException] out
+     * of `getLineStartOffset` when the document shrank under an open box — rather than overwriting a
+     * position already recorded in the store.
+     */
+    private fun liveRange(): Pair<Int, Int> {
+        val document = editor.document
+        val lastLine = (document.lineCount - 1).coerceAtLeast(0)
+        if (highlighter.isValid) {
+            val first = document.getLineNumber(highlighter.startOffset)
+            return first to maxOf(first, document.getLineNumber(highlighter.endOffset))
+        }
+        val first = start.coerceIn(0, lastLine)
+        return first to end.coerceIn(first, lastLine)
+    }
 
-    private fun rangeEndOffset(document: Document): Int = document.getLineEndOffset(end)
+    private fun rangeStartOffset(startLine: Int): Int = editor.document.getLineStartOffset(startLine)
+
+    private fun rangeEndOffset(endLine: Int): Int = editor.document.getLineEndOffset(endLine)
 
     /** The comment's lines plus [CONTEXT_LINES] of surrounding code — the re-anchoring seed. */
-    private fun contextWindow(document: Document): String {
-        val first = (start - CONTEXT_LINES).coerceAtLeast(0)
-        val last = (end + CONTEXT_LINES).coerceAtMost(document.lineCount - 1)
+    private fun contextWindow(startLine: Int, endLine: Int): String {
+        val document = editor.document
+        val first = (startLine - CONTEXT_LINES).coerceAtLeast(0)
+        val last = (endLine + CONTEXT_LINES).coerceAtMost(document.lineCount - 1)
         return document.getText(TextRange(document.getLineStartOffset(first), document.getLineEndOffset(last)))
     }
 

@@ -1,5 +1,6 @@
 package io.github.zerlok.agentsessionrelay.export
 
+import io.github.zerlok.agentsessionrelay.domain.CommentStatus
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 
@@ -71,8 +72,28 @@ object ReviewExporter {
         val end = ref.endLine + 1
         val anchor = if (start == end) "@$path#L$start" else "@$path#L$start-$end"
 
-        return Block(path, ref.startLine, anchor + "\n" + quoteBody(comment.body))
+        return Block(path, ref.startLine, anchor + flagOf(comment.status) + "\n" + quoteBody(comment.body))
     }
+
+    /**
+     * The stale flag (design D7), read from the comment's stored [CommentStatus] alone — the exporter
+     * does no I/O and reads no marker, so "is this anchor still good?" is decided at the export sync
+     * point and merely *rendered* here.
+     *
+     * It is appended **after** the reference token and followed by an unquoted note line, so:
+     * the `@path#L…` form stays byte-identical to the unflagged one and still resolves for anything
+     * matching the reference syntax; the note cannot be mistaken for user text (bodies are always
+     * `> `-quoted, so a body can never forge a note either); and an `ACTIVE` comment renders exactly as
+     * it did before flagging existed, which is what keeps a no-drift batch byte-identical.
+     */
+    private fun flagOf(status: CommentStatus): String =
+        if (status != CommentStatus.STALE) "" else "  $STALE_FLAG\n$STALE_NOTE"
+
+    private const val STALE_FLAG = "⚠️ unverified anchor"
+
+    private const val STALE_NOTE =
+        "The code at these lines changed after this comment was written — " +
+            "locate the intended code before acting on the line numbers."
 
     private class Ref(val fileUrl: String, val startLine: Int, val endLine: Int)
 

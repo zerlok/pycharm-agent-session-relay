@@ -182,9 +182,12 @@ repaints it. The view maintains live objects, not frames, and reconciles them **
 dispose removed, leave the rest). Key rules (per-decision detail in [
 `comment-batch/design.md`](../openspec/changes/archive/2026-07-05-comment-batch/design.md)):
 
-- **Ownership is per-editor.** An `EditorReviewOverlay` per editor holds
-  `Map<CommentId, …>`, created on `EditorFactoryListener.editorCreated` and freed on
-  `editorReleased`.
+- **Ownership follows scope.** An `EditorReviewOverlay` per editor holds what belongs to one
+  editor (the inline cards, the card-hover highlight); a `DocumentReviewMarkers` per *document*
+  holds the position markers. Both are created on `EditorFactoryListener.editorCreated` and
+  freed on `editorReleased` — the markers ref-counted against the live overlays on their
+  document, so they are built by the first editor to show the file and disposed after the last
+  one's close flush.
 - **Filter and seed.** `EditorFactory` is application-wide: handle only editors whose
   `project` matches, whose `editorKind == MAIN_EDITOR`, and whose document has a file. On
   startup, seed from `EditorFactory.getAllEditors()` — `editorCreated` fires only for
@@ -194,14 +197,15 @@ dispose removed, leave the rest). Key rules (per-decision detail in [
   `editorReleased`. Never parent to `Project` / `Application` directly.
 - **Highlight & gutter on the document markup** (`DocumentMarkupModel.forDocument`, shared
   across splits); **inlays are per-editor** (`InlayModel` lives on the editor). These two
-  scopes differ, so a comment's markers must be owned **once per document** even though cards
-  are owned per editor — otherwise N splits of one file each add their own highlighter for the
-  same comment. *Known deviation: the shipped `EditorReviewOverlay` adds markers per overlay,
-  i.e. per editor, so a split file currently carries duplicate gutter bars.*
-- **Invalidation → orphaned. [NOT IMPLEMENTED]** If the anchored line is deleted the
-  highlighter/inlay go invalid; the intent is to mark the comment stale/orphaned (keep it in
-  the tool window, drop its markers) rather than render a dead object. Today an invalid marker
-  is silently skipped when live positions are read, and no status is ever changed.
+  scopes differ, so a comment's markers are owned **once per document** even though cards
+  are owned per editor — otherwise N splits of one file would each add their own highlighter
+  for the same comment.
+- **Out of range → orphaned.** A comment whose recorded range does not exist in the current
+  document gets no marker and no card, and is marked `ORPHANED`; it keeps its recorded range
+  and stays in the tool window. Because it then has no live position at all, no sync point can
+  write a display-time substitute over what the user recorded. It returns to `ACTIVE` at the
+  next reconcile once the range fits again. An invalid marker is still skipped when live
+  positions are read — it reports no position rather than a wrong one.
 
 ---
 
@@ -239,8 +243,9 @@ frame-activation refresh.
 
 ```
   in-IDE edits        ──▶  RangeMarker tracks automatically                        [shipped]
-  out-of-IDE (agent)  ──▶  re-anchor on VFS refresh via anchorText + contextHash   [NOT IMPLEMENTED]
-  still ambiguous     ──▶  mark comment "stale", surface to human — never mis-point [NOT IMPLEMENTED]
+  out-of-IDE (agent)  ──▶  validate anchorText at export; mismatch ⇒ "stale"       [shipped]
+                      └─▶  re-anchor by searching anchorText + contextHash          [NOT IMPLEMENTED]
+  still ambiguous     ──▶  export the comment flagged — never mis-point silently    [shipped]
 ```
 
 Export is the deliverable and happens at submit time, so **loop discipline**
@@ -249,13 +254,18 @@ defense; the content/context hash is the safety net. The data model therefore
 carries `anchorText` + `contextHash` from day one, but Tier 1 needs no fuzzy
 matching.
 
-**[NOT IMPLEMENTED] — the safety net is captured but never armed.** `anchorText` and
-`contextHash` are recorded when a comment is added and are persisted, but **no code reads them
-back**, and `CommentStatus.STALE` / `ORPHANED` are never assigned by any path. At the sync
-points a marker's current offsets are trusted unconditionally. So when an agent rewrites a file
-between annotate and submit, the exported `@path#L` reference can point at unrelated code with
-no warning to the user and no signal to the agent. Until tier 2 lands, **loop discipline is the
-only defense, not the primary one.**
+Tier 2 is **validation, not relocation**: at the export sync point (and only there — a save is
+not a claim about anything) each open comment's recorded `anchorText` is compared against the
+text its live marker spans, and a mismatch marks the comment `STALE`, which the exporter renders
+as a visible flag beside an otherwise unchanged `@path#L` reference. A comment that cannot be
+checked — its file is not open, or it has no recorded anchor text — keeps its status: "we could
+not check" is not reported as "we checked and it moved". `contextHash` stays captured-but-unread;
+it is the input to the deferred tier.
+
+**Fuzzy re-anchoring — searching for `anchorText` elsewhere and *moving* the comment — is
+[NOT IMPLEMENTED]** and deliberately so: it can relocate a comment to a wrong-but-plausible
+match, which is the failure mode this tier exists to eliminate, and it wants the `DocumentTracker`
+line mapping tracked separately.
 
 ### 5.3 Threading / EDT
 
@@ -283,13 +293,13 @@ private, uncommitted drafts. Two constraints it honors:
   `getState()` runs off-EDT unless `getStateRequiresEdt = true` — required here because
   mutations are EDT-only and unsynchronized.
 
-**Re-anchor lazily, off the load path. [NOT IMPLEMENTED]** The intent: `loadState` runs early
-(pre-index) and loads raw records only; resolve the url and re-anchor by `anchorText` +
-`contextHash` when the file's editor opens, marking ambiguous comments stale — never in
-`loadState`. Today `loadState` is correctly inert, but nothing re-anchors afterwards: a
-restored comment whose lines no longer exist is silently clamped into the current document by
-the overlay, and that clamped position is then written back over the recorded one at the next
-sync point. See §5.2.
+**Resolve off the load path.** `loadState` runs early (pre-index) and loads raw records only; it
+resolves no url and decides nothing. A restored comment is first judged when its file's editor
+opens: one whose recorded range does not exist in that document is marked `ORPHANED` and keeps
+the range it was recorded at — never clamped into view and never written back over (§3.3).
+**Re-anchoring it by searching for `anchorText` + `contextHash` at that moment is
+[NOT IMPLEMENTED]**; until it lands an orphaned comment waits for its file to come back rather
+than being moved. See §5.2.
 
 ---
 

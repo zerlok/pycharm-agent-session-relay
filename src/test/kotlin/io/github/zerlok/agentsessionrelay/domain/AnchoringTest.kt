@@ -1,13 +1,15 @@
 package io.github.zerlok.agentsessionrelay.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for [Anchoring.contextHash] (task 8.1). Pure — the re-anchoring seed must be stable
- * across JVMs and runs (ARCHITECTURE §5.2), so it is deterministic and format-checked here.
+ * Unit tests for the pure anchoring helpers (ARCHITECTURE §5.2): [Anchoring.contextHash], whose seed
+ * must be stable across JVMs and runs (so it is deterministic and format-checked here), and
+ * [Anchoring.matches], the anchor check the export sync point runs.
  */
 class AnchoringTest {
 
@@ -52,5 +54,48 @@ class AnchoringTest {
     @Test
     fun `hashing is order-sensitive across the context window`() {
         assertNotEquals(Anchoring.contextHash("ab"), Anchoring.contextHash("ba"))
+    }
+
+    // -- matches(): the tier-2 anchor check (design D1) --
+
+    @Test
+    fun `identical anchor text matches`() {
+        val text = "def foo():\n    return 42"
+
+        assertTrue(Anchoring.matches(text, text))
+    }
+
+    @Test
+    fun `a trailing-whitespace-only difference still matches`() {
+        // Strip-trailing-whitespace-on-save changes bytes without changing what the lines mean.
+        assertTrue(Anchoring.matches("def foo():   \n    return 42\t", "def foo():\n    return 42"))
+    }
+
+    @Test
+    fun `a CRLF-only difference still matches`() {
+        assertTrue(Anchoring.matches("def foo():\r\n    return 42", "def foo():\n    return 42"))
+    }
+
+    @Test
+    fun `a changed word does not match`() {
+        assertFalse(Anchoring.matches("    return 42", "    return 43"))
+    }
+
+    @Test
+    fun `leading indentation is significant`() {
+        // Only TRAILING whitespace is normalized: a re-indent is a real change to the referenced lines.
+        assertFalse(Anchoring.matches("    return 42", "        return 42"))
+    }
+
+    @Test
+    fun `a null recorded anchor matches anything`() {
+        // "Nothing to verify" is not evidence of drift (design D6).
+        assertTrue(Anchoring.matches(null, "whatever is there now"))
+    }
+
+    @Test
+    fun `an empty recorded anchor is not the same as a null one`() {
+        assertFalse(Anchoring.matches("", "still here"))
+        assertTrue(Anchoring.matches("", ""))
     }
 }

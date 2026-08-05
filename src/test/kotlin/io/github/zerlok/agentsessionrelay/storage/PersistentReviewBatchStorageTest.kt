@@ -137,6 +137,24 @@ class PersistentReviewBatchStorageTest {
         assertEquals("cafe", restoredB.contextHash)
     }
 
+    /**
+     * Both non-`ACTIVE` statuses survive the round trip. They are now reachable states (a comment can
+     * be marked `STALE` at export and `ORPHANED` when its range stops fitting its document), so a
+     * restored batch must come back saying the same thing about each comment as when it was written.
+     */
+    @Test
+    fun `a non-ACTIVE status round-trips`() {
+        val source = PersistentReviewBatchStorage()
+        source.add(comment("stale").copy(status = CommentStatus.STALE))
+        source.add(comment("orphaned").copy(status = CommentStatus.ORPHANED))
+
+        val restored = PersistentReviewBatchStorage()
+        restored.loadState(source.getState())
+
+        assertEquals(CommentStatus.STALE, restored.get(CommentId("stale"))!!.status)
+        assertEquals(CommentStatus.ORPHANED, restored.get(CommentId("orphaned"))!!.status)
+    }
+
     @Test
     fun `an empty batch round-trips as empty`() {
         val restored = PersistentReviewBatchStorage()
