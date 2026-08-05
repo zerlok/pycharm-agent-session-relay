@@ -224,9 +224,10 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
 - [x] 5.3 Second test for the other half — the user's *own* edit in a reopened box is still undoable —
       so 5.1 cannot be "fixed" by making the body's undo dead altogether.
 - [x] 5.4 Gates: `./gradlew compileKotlin --offline` clean; `./gradlew test` green.
-- [ ] 5.5 Running-IDE re-check of the reported flow: save a comment, reopen it, press Ctrl+Z with
+- [x] 5.5 Running-IDE re-check of the reported flow: save a comment, reopen it, press Ctrl+Z with
       nothing typed → nothing happens and the body stays; then type, Ctrl+Z → the typing is undone down
-      to the stored body and no further. Record the outcome here.
+      to the stored body and no further. Record the outcome here. (**Checked by the maintainer,
+      2026-08-05: works as expected.** Defect C is fixed in a running IDE, not only under test.)
 
 ## 6. The two remaining running-IDE questions (4 and 7)
 
@@ -235,7 +236,9 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
       focused — no regression found.** Not exercised: File Structure (Ctrl+F12), Select In (Alt+F1),
       Open in Right Split, and `$FilePath$` macro expansion in External Tools / run configs. Nothing
       suggests those differ — the three checked cover the same shadowing path — so this is recorded as
-      answered-in-practice rather than exhaustively.) With the comment box
+      answered-in-practice rather than exhaustively. **Closed on the maintainer's call, 2026-08-05:**
+      the leftovers are taken as working on the strength of the three checked actions rather than
+      exercised individually.) With the comment box
       focused (caret inside the body), invoke each of: Find Usages in File (Ctrl+F7), File Structure
       (Ctrl+F12), Select In (Alt+F1), Open in Right Split, a split-editor action, and an External Tool
       or run config whose command line uses a `$FilePath$`-style macro. These are the user-invocable
@@ -244,14 +247,21 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
       no-op where the action normally works, or an exception. **Check
       `build/idea-sandbox/PC-2024.2.5/log/idea.log` afterwards** — the likely failure is a mis-cast or
       a null file deep in an action, which surfaces there rather than on screen.
-- [ ] 6.2 **Open Question 7 — is the deferred `revalidate()` load-bearing?** Make `scheduleRemeasure`'s
+- [x] 6.2 **Open Question 7 — is the deferred `revalidate()` load-bearing? YES — answered by the
+      maintainer, 2026-08-05: with `scheduleRemeasure` emptied, the box does not resize when a new line
+      appears while editing a comment.** So the synchronous invalidation the inner editor causes does
+      *not* reach a validate root at or above the inlay renderer on its own, and the deferred
+      `revalidate()` is the whole mechanism exactly as D2-R claims. The weakest case (a typed newline,
+      where the preferred height changes at the document change itself) already fails without it, so
+      the soft-wrap case cannot be the only thing keeping it alive.** Make `scheduleRemeasure`'s
       body empty (leave everything else in place), rebuild, and in the running IDE type Enter in the
       box, type one long unbroken line until it soft-wraps, and delete body lines. Watch whether the
       *code below the box* reflows on the keystroke in each case. Test all three separately: a typed
       newline changes the body's preferred height at the document change, whereas a soft-wrap is
       recomputed inside the inner editor and may not be reflected until later — so the newline case can
       pass without the listener while the wrap case fails.
-- [ ] 6.3 Act on 6.2: if all three still reflow on the keystroke, **delete defect B's half** — the
+- [x] 6.3 Act on 6.2 — **nothing deleted; D2-R stands as written**, which is 6.2's third branch. Full
+      rule as it was written before the answer: if all three still reflow on the keystroke, **delete defect B's half** — the
       `DocumentListener`, `scheduleRemeasure`, the `boxPanel` field and its two tests — and narrow the
       spec's same-edit-height clause to what the platform does on its own. (Keep `Disposer.dispose` in
       `create()`; it is correct regardless.) If only the soft-wrap case fails, keep the listener and
@@ -260,16 +270,17 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
 
 ## 7. Carried forward at archive time
 
-This change is archived with 5.5, 6.2 and 6.3 **deliberately unchecked** — they are open work, not
-overlooked work, and they do not block the shipped behaviour:
+This change was archived with 5.5, 6.2 and 6.3 unchecked. **All three were closed by the maintainer
+on 2026-08-05, after the archive**, so nothing is outstanding:
 
-- **5.5** — running-IDE re-check of the defect-C flow (reopen a saved comment, Ctrl+Z). The fix is
-  covered by two unit tests, one of which was verified to fail without it, but the reported flow
-  itself has not been re-observed in a real IDE since.
-- **6.2 / 6.3** — Open Question 7: whether the deferred `revalidate()` is load-bearing at all. If a
-  running IDE grows the box without the document listener, defect B's half of this change is
-  unnecessary and should be **deleted**, not kept. Archiving does not settle that; the procedure and
-  decision rule stay in 6.2/6.3 and the question stays open in design.md.
+- **5.5** — the defect-C flow was re-checked in a running IDE and works as expected.
+- **6.2 / 6.3** — Open Question 7 is answered **yes**: with `scheduleRemeasure` emptied, the box does
+  not resize when a new line appears. The deferred `revalidate()` is load-bearing, D2-R stands as
+  written, and nothing is deleted. The alternative this section was hedging against — that defect B's
+  half was unnecessary — is disproved.
+
+Nothing in the shipped code or the synced spec changed as a result; only this record and design.md's
+"## Open Questions" were updated.
 
 Two defects found during the 6.1 session are **out of this change's scope** (0.3 excludes
 `StoredCommentCard` and the sizing helpers) and belong to a follow-up change:

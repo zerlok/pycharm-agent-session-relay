@@ -297,9 +297,11 @@ when authoring, the stored body when editing — which is what the spec now requ
 
 ## Open Questions
 
-Nothing below can be settled here — this machine has no display and `runIde` is impossible, so the
-only local evidence is `compileKotlin`, the unit suite, and reading the platform's own bytecode. Each
-must be answered in a running IDE and the answer recorded back into this section.
+Nothing below could be settled while this change was being written — that machine has no display and
+`runIde` was impossible, so the only local evidence was `compileKotlin`, the unit suite, and reading
+the platform's own bytecode. Each had to be answered in a running IDE and recorded back here.
+**All of them now are** — see the two notes immediately below; the numbered list is kept as written
+so each answer stays next to the question it answers.
 
 > **Answered in a running IDE (2026-08-02, by the maintainer).** Questions 1, 2, 3, 5 and 6 — the
 > tasks.md 3.3 checklist — all came back as specified: undo and redo act on the comment body and leave
@@ -314,8 +316,16 @@ must be answered in a running IDE and the answer recorded back into this section
 > Open in Right Split and macro expansion were not exercised, but they resolve `FILE_EDITOR` by the
 > same shadowing path the three checked ones do, so nothing suggests they differ.
 >
-> **Question 7 is still open** — is the deferred `revalidate()` load-bearing at all? It could delete
-> half this change; the procedure and decision rule are in tasks.md 6.2/6.3.
+> **Question 7 answered (2026-08-05, by the maintainer): yes, it is load-bearing.** With
+> `scheduleRemeasure`'s body emptied, the box does not resize when a new line appears while editing a
+> comment. So the synchronous invalidation the inner editor causes on a document change does **not**
+> reach a validate root at or above `MyRenderer` on its own, and the deferred `revalidate()` is the
+> whole mechanism exactly as D2-R claims. Note which case decided it: the *typed newline*, where the
+> body's preferred height changes at the document change itself — the weakest case for the listener.
+> Since even that fails without it, the soft-wrap case cannot be the only thing keeping it alive, and
+> D2-R needs no narrowing. **Nothing is deleted.**
+>
+> **Every open question in this section is now closed.**
 
 > **Answered statically (remediation round).** The original Open Question 1 — "does `setNull` let
 > `BasicUiDataRule` re-derive `FILE_EDITOR`?" — is decidable from `PreCachedDataContext$MySink.set`
