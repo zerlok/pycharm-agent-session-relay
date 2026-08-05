@@ -257,3 +257,28 @@ body with submit and cancel" now states the undo **baseline** rule and carries t
       `create()`; it is correct regardless.) If only the soft-wrap case fails, keep the listener and
       narrow D2-R's justification to that case in one sentence. If the box does not grow at all
       without it, D2-R stands as written.
+
+## 7. Carried forward at archive time
+
+This change is archived with 5.5, 6.2 and 6.3 **deliberately unchecked** — they are open work, not
+overlooked work, and they do not block the shipped behaviour:
+
+- **5.5** — running-IDE re-check of the defect-C flow (reopen a saved comment, Ctrl+Z). The fix is
+  covered by two unit tests, one of which was verified to fail without it, but the reported flow
+  itself has not been re-observed in a real IDE since.
+- **6.2 / 6.3** — Open Question 7: whether the deferred `revalidate()` is load-bearing at all. If a
+  running IDE grows the box without the document listener, defect B's half of this change is
+  unnecessary and should be **deleted**, not kept. Archiving does not settle that; the procedure and
+  decision rule stay in 6.2/6.3 and the question stays open in design.md.
+
+Two defects found during the 6.1 session are **out of this change's scope** (0.3 excludes
+`StoredCommentCard` and the sizing helpers) and belong to a follow-up change:
+
+- The stored card's Edit/Delete icons become unreachable when the editor area is narrower than the
+  card's build-time `baseWidth` — `StoredCommentCard.doLayout` positions the header at a fixed
+  content width derived from that stale value rather than from the card's actual width, and nothing
+  in `ui/` listens for an editor resize.
+- The card's body (`JBTextArea`, LAF `TextArea.font`) and the box's body (`EditorTextField`, which
+  pushes its own Swing font into the inner editor) disagree by construction, so the same comment
+  changes typeface when the user clicks Edit — contrary to "Present the authoring box as the stored
+  card's editing state".
