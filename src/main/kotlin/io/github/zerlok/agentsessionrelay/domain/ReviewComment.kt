@@ -11,23 +11,27 @@ value class CommentId(val value: String)
  */
 enum class CommentStatus {
     /**
-     * The comment's anchor is either verified to still match, or has not been checked (its file is not
-     * open, or it carries no [ReviewComment.anchorText] to check against). Exported unflagged.
+     * The comment's anchor is either verified to still match, or could not be checked at all — it
+     * carries no [ReviewComment.anchorText], or its file cannot be resolved or read. (A file merely
+     * being closed is *not* one of those cases: verification reads content, not markers.) Exported
+     * unflagged.
      */
     ACTIVE,
 
     /**
      * The text *under* the comment changed after it was written, so its line range is no longer known
-     * to be correct. Detected at the export sync point by comparing [ReviewComment.anchorText] against
-     * the text the live marker spans. The comment is still deliverable and is exported with a flag —
-     * never silently dropped and never silently moved.
+     * to be correct. Decided at the export sync point by comparing [ReviewComment.anchorText] against
+     * the text at the recorded range in the file's current content. The comment is still deliverable
+     * and is exported with a flag — never silently dropped and never silently moved.
      */
     STALE,
 
     /**
-     * The comment's recorded range does not exist in the current document at all. It keeps its recorded
-     * position (a display-time clamp never becomes the anchor), stays listed in the tool window, and
-     * renders no editor marker or card.
+     * The comment's recorded range does not exist in the file's current content at all. Decided by the
+     * presentation layer when the file's editor opens and at the export sync point otherwise, so it
+     * does not depend on the file having been opened. It keeps its recorded position (a display-time
+     * clamp never becomes the anchor), stays listed in the tool window, renders no editor marker or
+     * card, and is exported with its own flag.
      */
     ORPHANED,
 }

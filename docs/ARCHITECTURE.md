@@ -205,7 +205,10 @@ dispose removed, leave the rest). Key rules (per-decision detail in [
   and stays in the tool window. Because it then has no live position at all, no sync point can
   write a display-time substitute over what the user recorded. It returns to `ACTIVE` at the
   next reconcile once the range fits again. An invalid marker is still skipped when live
-  positions are read — it reports no position rather than a wrong one.
+  positions are read — it reports no position rather than a wrong one. The same verdict is also
+  reached at export from the file's content (§5.2), so it does not wait for the file to be
+  opened; both paths apply the one rule (`Subjects.fitsIn`) through the same idempotent status
+  command, so they cannot disagree or cascade.
 
 ---
 
@@ -243,7 +246,9 @@ frame-activation refresh.
 
 ```
   in-IDE edits        ──▶  RangeMarker tracks automatically                        [shipped]
-  out-of-IDE (agent)  ──▶  validate anchorText at export; mismatch ⇒ "stale"       [shipped]
+  out-of-IDE (agent)  ──▶  detect at export: compare anchorText against the        [shipped]
+                      │    file's CONTENT — open or closed. Mismatch ⇒ STALE;
+                      │    recorded range gone ⇒ ORPHANED
                       └─▶  re-anchor by searching anchorText + contextHash          [NOT IMPLEMENTED]
   still ambiguous     ──▶  export the comment flagged — never mis-point silently    [shipped]
 ```
@@ -254,13 +259,24 @@ defense; the content/context hash is the safety net. The data model therefore
 carries `anchorText` + `contextHash` from day one, but Tier 1 needs no fuzzy
 matching.
 
-Tier 2 is **validation, not relocation**: at the export sync point (and only there — a save is
-not a claim about anything) each open comment's recorded `anchorText` is compared against the
-text its live marker spans, and a mismatch marks the comment `STALE`, which the exporter renders
-as a visible flag beside an otherwise unchanged `@path#L` reference. A comment that cannot be
-checked — its file is not open, or it has no recorded anchor text — keeps its status: "we could
-not check" is not reported as "we checked and it moved". `contextHash` stays captured-but-unread;
-it is the input to the deferred tier.
+Tier 1 needs no help from Relay even when the agent rewrites an **open** file: the platform's
+reload-from-disk is **diff-based**, so `RangeMarker`s remap onto the new text and a comment moves
+to the right lines by itself (confirmed in maintainer QA, 2026-08-06). This is why adopting
+`DocumentTracker` line mapping is a low priority rather than a queued fix — the reasoning that
+once motivated it, that reloads reapply offsets naively, is simply wrong.
+
+Tier 2 is **detection, not relocation**: at the export sync point (and only there — a save is not
+a claim about anything) each line-anchored comment's recorded `anchorText` is compared against the
+text at its recorded range in the file's **current content**, obtained through
+`FileDocumentManager` — the in-memory document when the file is open, loaded from disk when it is
+not. A mismatch marks the comment `STALE` and a recorded range that no longer exists marks it
+`ORPHANED`; the exporter renders each as a short, distinct flag beside an otherwise unchanged
+`@path#L` reference. Reading content is I/O, so this runs off the EDT in the delivery layer, and
+it is what makes the check cover the case Relay's premise makes common: the agent edits files the
+user is *not* looking at. A comment that genuinely cannot be checked — no recorded anchor text, or
+a file that cannot be resolved or read — keeps its status: "we could not check" is not reported as
+"we checked and it moved". A closed file is not one of those cases. `contextHash` stays
+captured-but-unread; it is the input to the deferred tier.
 
 **Fuzzy re-anchoring — searching for `anchorText` elsewhere and *moving* the comment — is
 [NOT IMPLEMENTED]** and deliberately so: it can relocate a comment to a wrong-but-plausible
@@ -270,7 +286,9 @@ line mapping tracked separately.
 ### 5.3 Threading / EDT
 
 - SSH / external processes / snapshot hashing / export process → **background** (never
-  EDT); hand background code an **immutable snapshot** of the batch taken on the EDT.
+  EDT); hand background code an **immutable snapshot** of the batch taken on the EDT. The submit
+  pipeline hops exactly once for this reason: EDT position flush → background anchor verification
+  and `REVIEW.md` write → EDT status writes and the clear-or-preserve decision.
 - **`WriteCommandAction` is only for Document/PSI/VFS edits.** Adding, deleting, or
   re-anchoring a comment mutates Relay's *own* state, not the document — do it on the EDT
   without a write command.
@@ -294,9 +312,10 @@ private, uncommitted drafts. Two constraints it honors:
   mutations are EDT-only and unsynchronized.
 
 **Resolve off the load path.** `loadState` runs early (pre-index) and loads raw records only; it
-resolves no url and decides nothing. A restored comment is first judged when its file's editor
-opens: one whose recorded range does not exist in that document is marked `ORPHANED` and keeps
-the range it was recorded at — never clamped into view and never written back over (§3.3).
+resolves no url and decides nothing. A restored comment is judged when its file's editor opens or
+at the next submit, whichever comes first: one whose recorded range does not exist is marked
+`ORPHANED` and keeps the range it was recorded at — never clamped into view and never written
+back over (§3.3).
 **Re-anchoring it by searching for `anchorText` + `contextHash` at that moment is
 [NOT IMPLEMENTED]**; until it lands an orphaned comment waits for its file to come back rather
 than being moved. See §5.2.

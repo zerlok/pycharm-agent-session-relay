@@ -14,6 +14,7 @@ import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.CommentStatus
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
+import io.github.zerlok.agentsessionrelay.domain.Subjects
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
@@ -118,19 +119,17 @@ class DocumentReviewMarkers(
     fun currentPositions(): Map<CommentId, Subject> = liveState().mapValues { (_, anchor) -> anchor.subject }
 
     /**
-     * Whether [subject]'s recorded range exists in this document — the one rule deciding whether a
-     * comment gets a marker and a card at all, shared with [EditorReviewOverlay] so the two surfaces
-     * cannot disagree about which comments are orphaned.
+     * Whether [subject]'s recorded range exists in this document — the rule deciding whether a comment
+     * gets a marker and a card at all. It is [Subjects.fitsIn], the same rule the delivery layer
+     * applies to a file's content at export, so an editor-time and an export-time `ORPHANED` verdict
+     * can never disagree.
      */
-    fun fits(subject: Subject): Boolean {
-        val (startLine, endLine) = linesOf(subject) ?: return false
-        return startLine >= 0 && endLine >= startLine && endLine <= document.lineCount - 1
-    }
+    fun fits(subject: Subject): Boolean = Subjects.fitsIn(subject, document.lineCount)
 
     private fun reconcile() {
         val url = fileUrl ?: return
         val wanted = ReviewBatchService.getInstance(project).comments()
-            .filter { fileUrlOf(it.subject) == url }
+            .filter { Subjects.fileUrlOf(it.subject) == url }
             .associateBy { it.id }
 
         // Dispose markers whose comment is gone (deleted / cleared / moved off this file).
@@ -156,7 +155,7 @@ class DocumentReviewMarkers(
      * cascade stops there — [ReviewBatchService.updateStatus] publishes nothing for an unchanged status.
      */
     private fun addMarker(comment: ReviewComment) {
-        val (startLine, endLine) = linesOf(comment.subject) ?: return
+        val (startLine, endLine) = Subjects.linesOf(comment.subject) ?: return
         if (!fits(comment.subject)) {
             markStatus(comment, CommentStatus.ORPHANED)
             return
@@ -204,19 +203,4 @@ class DocumentReviewMarkers(
         markerSubjects.clear()
     }
 
-    companion object {
-        fun fileUrlOf(subject: Subject): String? = when (subject) {
-            is Subject.Line -> subject.fileUrl
-            is Subject.LineRange -> subject.fileUrl
-            is Subject.File -> subject.fileUrl
-            is Subject.Files -> null
-            Subject.Project -> null
-        }
-
-        fun linesOf(subject: Subject): Pair<Int, Int>? = when (subject) {
-            is Subject.Line -> subject.line to subject.line
-            is Subject.LineRange -> subject.startLine to subject.endLine
-            else -> null
-        }
-    }
 }

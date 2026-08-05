@@ -19,6 +19,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
+import io.github.zerlok.agentsessionrelay.domain.Subjects
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import java.awt.event.MouseAdapter
@@ -129,7 +130,7 @@ private class ReviewBatchPanel(
         ((tree.lastSelectedPathComponent as? DefaultMutableTreeNode)?.userObject as? ReviewComment)
 
     private fun navigateTo(comment: ReviewComment) {
-        val url = fileUrlOf(comment.subject) ?: return
+        val url = Subjects.fileUrlOf(comment.subject) ?: return
         val file = VirtualFileManager.getInstance().findFileByUrl(url) ?: return
         val line = startLineOf(comment.subject) ?: 0
         OpenFileDescriptor(project, file, line, 0).navigate(true)
@@ -161,18 +162,7 @@ private class ReviewBatchPanel(
             Subject.Project -> "(whole review)"
         }
 
-        private fun fileUrlOf(subject: Subject): String? = when (subject) {
-            is Subject.Line -> subject.fileUrl
-            is Subject.LineRange -> subject.fileUrl
-            is Subject.File -> subject.fileUrl
-            else -> null
-        }
-
-        private fun startLineOf(subject: Subject): Int? = when (subject) {
-            is Subject.Line -> subject.line
-            is Subject.LineRange -> subject.startLine
-            else -> null
-        }
+        private fun startLineOf(subject: Subject): Int? = Subjects.linesOf(subject)?.first
 
         private fun fileLabel(key: String): String =
             VirtualFileManager.getInstance().findFileByUrl(key)?.presentableName

@@ -72,19 +72,22 @@ class ReviewExporterTest {
         assertEquals("", ReviewExporter.export(batch, basePath))
     }
 
-    // -- The stale flag (trustworthy-comment-anchors, design D7) --
+    // -- The anchor flags (verified-delivery, design D3) --
 
     private fun stale(subject: Subject, body: String, id: String = "id") =
         comment(subject, body, id).copy(status = CommentStatus.STALE)
 
+    private fun orphaned(subject: Subject, body: String, id: String = "id") =
+        comment(subject, body, id).copy(status = CommentStatus.ORPHANED)
+
     /**
      * A `STALE` comment is exported — never silently dropped — with the drift stated where the agent
-     * reads the reference. The reference token itself is byte-identical to the unflagged form and stays
-     * first on its line, so anything matching the `@path#L` syntax still resolves it; the note is
-     * unquoted, so it can never be confused with the user's own (always `> `-quoted) text.
+     * reads the reference, as a single short marker and nothing else. The reference token itself is
+     * byte-identical to the unflagged form and stays first on its line, so anything matching the
+     * `@path#L` syntax still resolves it; the body stays `> `-quoted.
      */
     @Test
-    fun `a stale comment keeps its reference and gains a flag and a note`() {
+    fun `a stale comment keeps its reference and gains a concise flag`() {
         val out = ReviewExporter.export(
             listOf(stale(Subject.LineRange(url("src/app.py"), 39, 41), "the retry loop needs a backoff")),
             basePath,
@@ -92,14 +95,28 @@ class ReviewExporterTest {
 
         assertEquals(
             "@src/app.py#L40-42  ⚠️ unverified anchor\n" +
-                "The code at these lines changed after this comment was written — " +
-                "locate the intended code before acting on the line numbers.\n" +
                 "> the retry loop needs a backoff\n",
             out,
         )
         val lines = out.trimEnd('\n').lines()
         assertTrue("the reference token is unchanged and leads the line", lines[0].startsWith("@src/app.py#L40-42"))
-        assertFalse("the note is not quoted, so a body can never forge one", lines[1].startsWith(">"))
+        assertEquals("the flag adds no line of its own", 2, lines.size)
+        assertTrue("the body is still quoted", lines[1].startsWith("> "))
+    }
+
+    /**
+     * The two untrustworthy verdicts are told apart, because the agent's correct next move differs:
+     * `STALE` means "this code may have moved — locate it", `ORPHANED` means "these lines are gone".
+     */
+    @Test
+    fun `an orphaned comment carries a marker distinct from the stale one`() {
+        val out = ReviewExporter.export(
+            listOf(orphaned(Subject.LineRange(url("src/app.py"), 299, 300), "past the end")),
+            basePath,
+        )
+
+        assertEquals("@src/app.py#L300-301  ⚠️ anchor deleted\n> past the end\n", out)
+        assertFalse("the two markers are distinguishable", out.contains("unverified anchor"))
     }
 
     /**
@@ -121,7 +138,7 @@ class ReviewExporterTest {
         val batch = listOf(
             stale(Subject.Line(url("src/util.py"), 4), "b", id = "1"),
             comment(Subject.Line(url("src/app.py"), 20), "c", id = "2"),
-            stale(Subject.Line(url("src/app.py"), 3), "a", id = "3"),
+            orphaned(Subject.Line(url("src/app.py"), 3), "a", id = "3"),
         )
 
         val out = ReviewExporter.export(batch, basePath)
@@ -132,12 +149,16 @@ class ReviewExporterTest {
         assertEquals(positions.sorted(), positions)
     }
 
-    /** An `ORPHANED` comment is still the user's feedback: it exports at its recorded, unflagged range. */
+    /**
+     * An `ORPHANED` comment is still the user's feedback: it exports at the range it was recorded at.
+     * The line numbers no longer resolve, but they are the best clue to what the comment was about and
+     * the marker beside them already says not to trust them.
+     */
     @Test
     fun `an orphaned comment exports at its recorded range`() {
-        val batch = listOf(comment(Subject.LineRange(url("src/app.py"), 299, 300), "past the end").copy(status = CommentStatus.ORPHANED))
+        val batch = listOf(orphaned(Subject.LineRange(url("src/app.py"), 299, 300), "past the end"))
 
-        assertEquals("@src/app.py#L300-301\n> past the end\n", ReviewExporter.export(batch, basePath))
+        assertEquals("@src/app.py#L300-301  ⚠️ anchor deleted\n> past the end\n", ReviewExporter.export(batch, basePath))
     }
 
     @Test

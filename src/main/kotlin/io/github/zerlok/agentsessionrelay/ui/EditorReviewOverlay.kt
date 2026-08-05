@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
+import io.github.zerlok.agentsessionrelay.domain.Subjects
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
@@ -93,7 +94,7 @@ class EditorReviewOverlay(
         val url = fileUrl ?: return
         val editingId = CommentDraftController.getInstance(project).editingCommentId
         val wanted = ReviewBatchService.getInstance(project).comments()
-            .filter { DocumentReviewMarkers.fileUrlOf(it.subject) == url && it.id != editingId && markers.fits(it.subject) }
+            .filter { Subjects.fileUrlOf(it.subject) == url && it.id != editingId && markers.fits(it.subject) }
             .associateBy { it.id }
 
         // Dispose cards whose comment is gone, is now being edited, or no longer fits the document.
@@ -121,7 +122,7 @@ class EditorReviewOverlay(
      */
     private fun addCard(comment: ReviewComment) {
         val editorEx = editor as? EditorEx ?: return
-        val (_, endLine) = DocumentReviewMarkers.linesOf(comment.subject) ?: return
+        val (_, endLine) = Subjects.linesOf(comment.subject) ?: return
 
         val panel = StoredCommentCard.build(
             editorEx,
@@ -172,7 +173,7 @@ class EditorReviewOverlay(
 
     private fun showHoverHighlight(id: CommentId) {
         val live = markers.currentPositions()[id] ?: return
-        val (startLine, endLine) = DocumentReviewMarkers.linesOf(live) ?: return
+        val (startLine, endLine) = Subjects.linesOf(live) ?: return
         clearHoverHighlight()
         hoverHighlight = RangeHighlight.create(editor, startLine, endLine, RelayStyle.RANGE_WASH)
         hoverHighlightId = id

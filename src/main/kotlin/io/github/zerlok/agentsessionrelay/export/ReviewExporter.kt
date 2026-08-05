@@ -76,24 +76,32 @@ object ReviewExporter {
     }
 
     /**
-     * The stale flag (design D7), read from the comment's stored [CommentStatus] alone — the exporter
-     * does no I/O and reads no marker, so "is this anchor still good?" is decided at the export sync
-     * point and merely *rendered* here.
+     * The untrustworthy-anchor flag (design D3), read from the comment's stored [CommentStatus] alone —
+     * the exporter does no I/O and reads no marker, so "is this anchor still good?" is decided at the
+     * export sync point and merely *rendered* here.
      *
-     * It is appended **after** the reference token and followed by an unquoted note line, so:
-     * the `@path#L…` form stays byte-identical to the unflagged one and still resolves for anything
-     * matching the reference syntax; the note cannot be mistaken for user text (bodies are always
-     * `> `-quoted, so a body can never forge a note either); and an `ACTIVE` comment renders exactly as
-     * it did before flagging existed, which is what keeps a no-drift batch byte-identical.
+     * The two non-[CommentStatus.ACTIVE] statuses get **distinguishable** markers, because the agent's
+     * correct next move differs: a `STALE` comment's code may have moved or been edited and is worth
+     * locating, while an `ORPHANED` comment's lines are gone and the feedback may be obsolete. An
+     * `ORPHANED` reference keeps its last-known line numbers — they no longer resolve, but they are the
+     * best clue to what the comment was about and the marker already says not to trust them.
+     *
+     * Each is a single short marker appended **after** the reference token, with no explanatory
+     * sentence: the marker is a label, not documentation, and it appears once per affected comment in a
+     * file the agent parses, so a repeated sentence would dilute the signal it exists to carry. The
+     * `@path#L…` form stays byte-identical to the unflagged one and still resolves for anything matching
+     * the reference syntax, and an `ACTIVE` comment renders exactly as it did before flagging existed —
+     * which is what keeps a no-drift batch byte-identical.
      */
-    private fun flagOf(status: CommentStatus): String =
-        if (status != CommentStatus.STALE) "" else "  $STALE_FLAG\n$STALE_NOTE"
+    private fun flagOf(status: CommentStatus): String = when (status) {
+        CommentStatus.ACTIVE -> ""
+        CommentStatus.STALE -> "  $STALE_FLAG"
+        CommentStatus.ORPHANED -> "  $ORPHANED_FLAG"
+    }
 
     private const val STALE_FLAG = "⚠️ unverified anchor"
 
-    private const val STALE_NOTE =
-        "The code at these lines changed after this comment was written — " +
-            "locate the intended code before acting on the line numbers."
+    private const val ORPHANED_FLAG = "⚠️ anchor deleted"
 
     private class Ref(val fileUrl: String, val startLine: Int, val endLine: Int)
 

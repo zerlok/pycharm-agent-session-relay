@@ -19,7 +19,7 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
 /**
- * Real-platform tests for the three things `trustworthy-comment-anchors` makes true, driven through
+ * Real-platform tests for the marker ownership and orphaning rules, driven through
  * the **real** [EditorReviewOverlayService] lifecycle (its `editorCreated` / `editorReleased` path) so
  * that marker ownership, ref-counting, and the sync points are exercised as they ship:
  *
@@ -28,8 +28,12 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
  * - **Orphaned, not clamped** (design D4): a comment whose recorded range does not exist in the
  *   document renders nothing, keeps its recorded range through every sync point, and the store
  *   mutation it performs from inside a reconcile settles in one pass instead of cascading.
- * - **Anchors are validated at export** (design D5/D6): changed text under a comment marks it `STALE`,
- *   a shift above it does not, and what cannot be checked is left alone.
+ *
+ * Anchor verification moved out of this surface entirely (`verified-delivery` D1): it reads file
+ * content rather than live markers, so it covers closed files too, and it is tested in
+ * [io.github.zerlok.agentsessionrelay.delivery.ReviewDeliveryServiceTest]. What stays here is the
+ * *editor-time* `ORPHANED`/`ACTIVE` transition, which the export-time verdict must agree with rather
+ * than fight.
  *
  * The fixture's own `myFixture.editor` is deliberately unused: it is an `UNTYPED` editor the service
  * ignores, so every editor here is created as a real `MAIN_EDITOR` and released explicitly.
@@ -208,133 +212,6 @@ class DocumentReviewMarkersTest : BasePlatformTestCase() {
         assertEquals(CommentStatus.ACTIVE, statusOf(comment.id))
         assertEquals(1, gutterBars(document))
         assertEquals(1, cards(reopened))
-    }
-
-    // -- D5/D6: anchor validation at the export sync point --
-
-    /** Unchanged text: the comment is verified and stays `ACTIVE`. */
-    fun `test validateAnchors leaves an unchanged comment active`() {
-        val file = file("stable.py", "line0\nline1\nline2\n")
-        openEditor(file)
-        val comment = service.addComment(Subject.Line(file.url, 1), "fine", anchorText = "line1")
-
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.ACTIVE, statusOf(comment.id))
-    }
-
-    /**
-     * The defect this change exists to close: the text under the comment is rewritten (as an agent
-     * rewriting the file would), the marker's offsets survive, and the export would otherwise present
-     * the reference as fact. It is marked `STALE` instead.
-     */
-    fun `test validateAnchors marks a comment whose text was replaced as stale`() {
-        val file = file("rewritten.py", "line0\nline1\nline2\n")
-        val document = FileDocumentManager.getInstance().getDocument(file)!!
-        openEditor(file)
-        val comment = service.addComment(Subject.Line(file.url, 1), "check", anchorText = "line1")
-
-        WriteCommandAction.runWriteCommandAction(project) {
-            document.replaceString(document.getLineStartOffset(1), document.getLineEndOffset(1), "something else")
-        }
-
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.STALE, statusOf(comment.id))
-    }
-
-    /**
-     * A moved line number is not drift. Inserting above shifts the marker, so the exported reference
-     * changes — but the commented text is the same text, so the reference is still correct and must not
-     * be flagged. Flagging this would make the flag noise.
-     */
-    fun `test validateAnchors keeps a comment active when only its line numbers shifted`() {
-        val file = file("shifted.py", "line0\nline1\nline2\n")
-        val document = FileDocumentManager.getInstance().getDocument(file)!!
-        openEditor(file)
-        val comment = service.addComment(Subject.Line(file.url, 1), "check", anchorText = "line1")
-
-        WriteCommandAction.runWriteCommandAction(project) {
-            document.insertString(0, "top0\ntop1\n")
-        }
-        for ((id, subject) in overlayService.currentPositions()) service.updatePosition(id, subject)
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.ACTIVE, statusOf(comment.id))
-        assertEquals(Subject.Line(file.url, 3), subjectOf(comment.id))
-    }
-
-    /** A verdict that flips back: fixing the text again re-verifies the comment. */
-    fun `test validateAnchors clears stale once the text matches again`() {
-        val file = file("restored.py", "line0\nline1\nline2\n")
-        val document = FileDocumentManager.getInstance().getDocument(file)!!
-        openEditor(file)
-        val comment = service.addComment(Subject.Line(file.url, 1), "check", anchorText = "line1")
-
-        WriteCommandAction.runWriteCommandAction(project) {
-            document.replaceString(document.getLineStartOffset(1), document.getLineEndOffset(1), "something else")
-        }
-        overlayService.validateAnchors()
-        assertEquals(CommentStatus.STALE, statusOf(comment.id))
-
-        WriteCommandAction.runWriteCommandAction(project) {
-            document.replaceString(document.getLineStartOffset(1), document.getLineEndOffset(1), "line1")
-        }
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.ACTIVE, statusOf(comment.id))
-    }
-
-    /**
-     * Design D6: "we could not check" is not reported as "we checked and it moved". A comment in a file
-     * nobody has open has no live anchor, so validation leaves whatever status it carries — it neither
-     * invents drift nor clears a verdict recorded earlier.
-     */
-    fun `test validateAnchors leaves a comment whose file is not open alone`() {
-        val comment = service.addComment(
-            Subject.Line("file:///nobody/has/this/open.py", 1), "closed file", anchorText = "def f()",
-        )
-        service.updateStatus(comment.id, CommentStatus.STALE)
-
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.STALE, statusOf(comment.id))
-    }
-
-    /** The other unverifiable case: no recorded anchor text, so there is nothing to compare against. */
-    fun `test validateAnchors leaves a comment with no recorded anchor text alone`() {
-        val file = file("noanchor.py", "line0\nline1\nline2\n")
-        openEditor(file)
-        val comment = service.addComment(Subject.Line(file.url, 1), "pre-anchoring record")
-        assertNull(service.comments().single { it.id == comment.id }.anchorText)
-        service.updateStatus(comment.id, CommentStatus.STALE)
-
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.STALE, statusOf(comment.id))
-    }
-
-    /**
-     * Verification never relocates a comment: it writes a status and nothing else. Pinned on both
-     * verdicts, because "flag it" must not quietly become "fix it by moving it" — the failure mode the
-     * whole change is designed to avoid.
-     */
-    fun `test validateAnchors never changes a stored subject`() {
-        val file = file("untouched.py", "line0\nline1\nline2\n")
-        val document = FileDocumentManager.getInstance().getDocument(file)!!
-        openEditor(file)
-        val stale = service.addComment(Subject.Line(file.url, 1), "drifts", anchorText = "line1")
-        val active = service.addComment(Subject.Line(file.url, 2), "stays", anchorText = "line2")
-
-        WriteCommandAction.runWriteCommandAction(project) {
-            document.replaceString(document.getLineStartOffset(1), document.getLineEndOffset(1), "changed")
-        }
-        overlayService.validateAnchors()
-
-        assertEquals(CommentStatus.STALE, statusOf(stale.id))
-        assertEquals(Subject.Line(file.url, 1), subjectOf(stale.id))
-        assertEquals(CommentStatus.ACTIVE, statusOf(active.id))
-        assertEquals(Subject.Line(file.url, 2), subjectOf(active.id))
     }
 
     // -- helpers ------------------------------------------------------------------------------

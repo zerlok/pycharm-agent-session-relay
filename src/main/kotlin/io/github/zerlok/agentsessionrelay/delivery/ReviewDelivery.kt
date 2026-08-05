@@ -9,9 +9,9 @@ import io.github.zerlok.agentsessionrelay.export.ReviewExporter
  * No platform imports — trivially unit-testable without an editor, VFS, or filesystem (design D5,
  * mirroring [ReviewExporter]).
  *
- * The platform-facing action ([io.github.zerlok.agentsessionrelay.ui.SubmitReviewAction]) is left
- * with only side effects — flushing live positions, the off-EDT file write, the notification, and the
- * batch clear — while the empty-vs-nonempty branch and the written string live here.
+ * [ReviewDeliveryService] wraps this with the side effects — the position flush, anchor verification,
+ * the off-EDT write, the VFS refresh, and the clear-or-preserve decision — while the
+ * empty-vs-nonempty branch and the written string live here.
  */
 object ReviewDelivery {
 

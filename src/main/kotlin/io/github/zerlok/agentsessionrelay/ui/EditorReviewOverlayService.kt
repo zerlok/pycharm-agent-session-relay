@@ -15,9 +15,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import io.github.zerlok.agentsessionrelay.domain.Anchoring
 import io.github.zerlok.agentsessionrelay.domain.CommentId
-import io.github.zerlok.agentsessionrelay.domain.CommentStatus
 import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
@@ -39,11 +37,15 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
  * Both are [Disposable]s parented to **this service** (never to the editor/project directly), so they
  * also release on dynamic plugin unload; `editorReleased` disposes them eagerly.
  *
- * It is also the sync-point owner (ARCHITECTURE §3.2): besides the aggregate [currentPositions] and
- * [validateAnchors] the export path runs at submit time, it flushes live-marker positions into the
- * store at the two discrete in-IDE sync points — **editor close** ([release]) and **document save**
+ * It is also the position-sync-point owner (ARCHITECTURE §3.2): besides the aggregate
+ * [currentPositions] the delivery stage flushes at submit time, it flushes live-marker positions into
+ * the store at the two discrete in-IDE sync points — **editor close** ([release]) and **document save**
  * ([syncPositions], wired to [FileDocumentManagerListener.beforeDocumentSaving]) — so a persisted
  * comment's line range matches what the user sees without a per-keystroke write.
+ *
+ * Anchor *verification* is deliberately not here. It reads file content rather than markers, so it
+ * covers a comment whose file is closed, and it lives in
+ * [io.github.zerlok.agentsessionrelay.delivery.ReviewDeliveryService] where I/O is legal.
  */
 @Service(Service.Level.PROJECT)
 class EditorReviewOverlayService(private val project: Project) : Disposable {
@@ -98,34 +100,6 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
         val result = HashMap<CommentId, Subject>()
         for (owner in markers.values) result.putAll(owner.currentPositions())
         return result
-    }
-
-    /**
-     * The **export** sync point's anchor check (design D5), run right after the position flush and
-     * before the batch is read: for every comment with both a recorded anchor text and a live marker,
-     * compare the two via [Anchoring.matches] and record the verdict as [CommentStatus.STALE] or
-     * [CommentStatus.ACTIVE]. Position and text come from the same [DocumentReviewMarkers.liveState]
-     * pass, so they can never describe different instants (design D3).
-     *
-     * Two kinds of comment are skipped rather than flagged (design D6): one whose file is not open
-     * (no live entry) and one with no recorded anchor text. "We could not check" is a different claim
-     * from "we checked and it moved", and reporting the first as the second turns the flag into noise.
-     *
-     * This never moves a comment: it writes only [CommentStatus], never a [Subject]. Only the export
-     * path runs it — saving is not a claim about anything, so it does not validate.
-     */
-    fun validateAnchors() {
-        if (project.isDisposed) return
-        val live = HashMap<CommentId, LiveAnchor>()
-        for (owner in markers.values) live.putAll(owner.liveState())
-
-        val service = ReviewBatchService.getInstance(project)
-        for (comment in service.comments()) {
-            val recorded = comment.anchorText ?: continue
-            val current = live[comment.id] ?: continue
-            val status = if (Anchoring.matches(recorded, current.text)) CommentStatus.ACTIVE else CommentStatus.STALE
-            service.updateStatus(comment.id, status)
-        }
     }
 
     /**
