@@ -149,7 +149,16 @@ class EditorReviewOverlay(
             /* priority = */ 0,
             /* offset = */ document.getLineEndOffset(endLine),
         )
-        val inlay = EditorEmbeddedComponentManager.getInstance().addComponent(editorEx, panel, properties) ?: return
+        // The card attached itself to the editor's width watcher at build time so it follows the editor
+        // (responsive-inline-comment-surfaces D2/D3); the detach is registered here because the *inlay* is
+        // what owns the card's lifetime — a registration outliving it would revalidate a dead component.
+        val watcher = InlineWidthWatcher.of(editorEx)
+        val inlay = EditorEmbeddedComponentManager.getInstance().addComponent(editorEx, panel, properties)
+        if (inlay == null) {
+            watcher?.detach(panel)
+            return
+        }
+        watcher?.let { w -> Disposer.register(inlay, Disposable { w.detach(panel) }) }
         cards[comment.id] = inlay
         cardModels[comment.id] = comment
     }

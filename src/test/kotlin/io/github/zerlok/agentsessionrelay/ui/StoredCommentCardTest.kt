@@ -1,10 +1,12 @@
 package io.github.zerlok.agentsessionrelay.ui
 
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.Container
 import java.awt.event.MouseEvent
@@ -175,6 +177,28 @@ class StoredCommentCardTest : BasePlatformTestCase() {
         assertTrue("actions stay inside the row's height", delete.y >= 0 && delete.y + delete.height <= header.height)
     }
 
+    /**
+     * The collision rule (design D5): when the header row is too narrow for both, the icons keep their
+     * full width *inside* the row and the author label is the thing that yields. Asserted on bounds,
+     * since nothing renders headlessly — and asserted at a row width no real card reaches, because the
+     * failure it guards against is exactly the unreachable-action defect at an extreme width.
+     */
+    fun `test a narrow header keeps both actions in full and truncates the author label`() {
+        val card = buildCard()
+        val header = headerOf(card)
+        val (edit, delete) = actionsOf(card)
+        val iconWidths = edit.preferredSize.width + delete.preferredSize.width
+
+        // Narrower than the label wants but still wide enough for the two icons plus their gap.
+        header.setSize(iconWidths + JBUI.scale(8), header.preferredSize.height.coerceAtLeast(16))
+        header.doLayout()
+
+        assertEquals("the edit icon keeps its full width", edit.preferredSize.width, edit.width)
+        assertEquals("the delete icon keeps its full width", delete.preferredSize.width, delete.width)
+        assertTrue("both actions stay inside the row", edit.x >= 0 && delete.x + delete.width <= header.width)
+        assertTrue("the label yields to the actions", labelOf(header).x + labelOf(header).width <= edit.x)
+    }
+
     // -- Width (comment-box-sizing invariants this change must not regress) --
 
     /** The card still opens pinned to the shared base width and is still capped at the right margin. */
@@ -189,6 +213,37 @@ class StoredCommentCardTest : BasePlatformTestCase() {
         }
     }
 
+    /**
+     * The change's whole point (`review-batch` "Card follows the editor when it narrows"): the card's
+     * width is the editor's *current* one, taken from its [InlineWidthWatcher], not a number frozen when
+     * the card was built. So narrowing the editor narrows the card — and because the body is measured at
+     * that same number, it re-wraps and the card grows *taller* instead of having its text clipped.
+     *
+     * The one-width invariant is asserted in the same pass (design D1): after the narrowing, the header
+     * and the body are laid out at one content width, the one `getPreferredSize` measured at.
+     */
+    fun `test the card follows the editor's width, re-wrapping its body rather than clipping it`() {
+        val watcher = InlineWidthWatcher.install(editorEx)
+        Disposer.register(testRootDisposable, watcher)
+        // Long enough that halving the card's width must cost it visual lines whatever the metrics are.
+        val card = buildCard("a body long enough that it must re-wrap onto more visual lines once the card is narrowed, ".repeat(4))
+        val wide = card.preferredSize
+
+        // A real input of the width rule changes, exactly as a split or a window resize changes another.
+        editorEx.settings.setRightMargin(1)
+        watcher.refresh()
+
+        assertTrue("the card must have followed the editor", card.preferredSize.width < wide.width)
+        assertEquals("...to the watcher's width", watcher.width, card.preferredSize.width)
+        assertTrue("the narrowed body must re-wrap and grow the card taller", card.preferredSize.height > wide.height)
+
+        card.setSize(card.preferredSize)
+        card.doLayout()
+        val contentWidth = card.preferredSize.width - card.insets.left - card.insets.right
+        assertEquals("the body is laid out at the width it was measured at", contentWidth, bodyOf(card).width)
+        assertEquals("...and so is the header", contentWidth, headerOf(card).width)
+    }
+
     // -- Helpers --
 
     /** Builds a card over the fixture editor and returns the card panel itself (inside the width cap). */
@@ -200,8 +255,7 @@ class StoredCommentCardTest : BasePlatformTestCase() {
             onDelete = {},
             onHover = { hovers += it },
         )
-        // The returned component is InlineWidth.capWidth's wrapper (or the card itself when no cap
-        // applies); the card is the body area's parent either way.
+        // The returned component is InlineWidth.pinLeading's wrapper; the card is the body area's parent.
         return bodyOf(root).parent as JPanel
     }
 
@@ -210,6 +264,9 @@ class StoredCommentCardTest : BasePlatformTestCase() {
 
     private fun headerOf(card: JPanel): JPanel =
         card.components.filterIsInstance<JPanel>().singleOrNull() ?: error("no header row")
+
+    private fun labelOf(header: JPanel): JBLabel =
+        header.components.filterIsInstance<JBLabel>().singleOrNull() ?: error("no author label")
 
     /** Edit first, then Delete — the order they are added to the header. */
     private fun actionsOf(card: JPanel): List<InplaceButton> = headerOf(card).components.filterIsInstance<InplaceButton>()

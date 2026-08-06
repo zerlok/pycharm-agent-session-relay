@@ -1,8 +1,10 @@
 package io.github.zerlok.agentsessionrelay.ui
 
 import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.UIUtil
 import java.awt.Color
+import java.awt.Font
 
 /**
  * The single home for every color Relay paints, and for the surface fill its two inline surfaces share
@@ -16,10 +18,11 @@ import java.awt.Color
  * literally the same two RGB pairs declared in two files, and the overlay had to reach into the *draft*
  * for the color of a *stored comment's* hover wash.
  *
- * Colors and the surface fill only — no components, no borders, no layout. Each surface still composes
- * its own border, because the card's geometry is load-bearing (its insets are the single place the
- * content width is derived from) and a style object that hands out borders would become a second place
- * where that geometry lives.
+ * Colors, the surface fill and the shared body font only — no components, no borders, no layout. A font
+ * is a shared visual token like a color: it introduces no second place a *width* is derived from. Each
+ * surface still composes its own border, because the card's geometry is load-bearing (its insets are the
+ * single place the content width is derived from) and a style object that hands out borders would become
+ * a second place where that geometry lives.
  */
 internal object RelayStyle {
 
@@ -64,4 +67,21 @@ internal object RelayStyle {
      * switches theme, so it must be read at build time rather than captured once at class-init.
      */
     fun surface(): Color = UIUtil.getPanelBackground()
+
+    /**
+     * The font the stored comment's card and the authoring box both render their **body** in, so a
+     * comment does not change typeface the moment it is opened for editing (design D6). Neither surface
+     * may take this from the default its Swing component class inherits: the platform's LaF gives
+     * `TextArea.font` a *Monospaced* resource while an [com.intellij.ui.EditorTextField] carries the UI
+     * font, so the card and the box disagreed by construction.
+     *
+     * The UI font is the direction of the parity, following the platform's own review-comment surfaces,
+     * which force their comment editor onto the UI font and render the read-only side in UI-font panes.
+     *
+     * A function, not a `val`, for the same reason as [surface]: it is a live LaF value that changes with
+     * the theme and the IDE font-size setting, so it must be read at build time rather than at class-init.
+     * Pinned to the plain weight: a comment body is running text, and `Label.font` is bold under some
+     * LaFs (the headless test runtime's among them), which would render every stored comment bold.
+     */
+    fun bodyFont(): Font = JBFont.label().asPlain()
 }

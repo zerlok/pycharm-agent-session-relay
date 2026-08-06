@@ -185,6 +185,23 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         assertTrue(overlay.cardCommentIds.isEmpty())
     }
 
+    /**
+     * A card follows the editor's width while it exists, and stops when it does not (task 2.4): the card
+     * attaches to the editor's [InlineWidthWatcher] when it is built, and its detach rides the *inlay's*
+     * disposal — so a deleted comment leaves nothing registered to revalidate a component that no longer
+     * has an inlay.
+     */
+    fun `test a card attaches to the width watcher and detaches when its inlay goes`() {
+        val watcher = InlineWidthWatcher.install(myFixture.editor)
+        Disposer.register(testRootDisposable, watcher)
+
+        val comment = service.addComment(Subject.Line(url, 1), "look here")
+        assertEquals("a card must follow the editor's width", 1, watcher.surfaceCount)
+
+        service.removeComment(comment.id)
+        assertEquals("a removed card must leave nothing registered", 0, watcher.surfaceCount)
+    }
+
     /** The comment currently open in an edit box has no card; on close its card reappears (design D3). */
     fun `test the currently edited comment has no card`() {
         val comment = service.addComment(Subject.Line(url, 1), "edit me")

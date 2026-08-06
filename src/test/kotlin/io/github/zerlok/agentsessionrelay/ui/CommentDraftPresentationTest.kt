@@ -115,6 +115,21 @@ class CommentDraftPresentationTest : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * One font for one object (design D6): the box's body and the card's body render in the same
+     * typeface, so clicking Edit does not make the comment look like a different comment. Neither may
+     * take it from its Swing class's default — a `JTextArea` inherits the LaF's *Monospaced*
+     * `TextArea.font` while an [EditorTextField] carries the UI font — so both are asserted against the
+     * single source as well as against each other.
+     */
+    fun `test the box's body and the card's body render in one font`() {
+        controller.open(myFixture.editor, 1, 1)
+
+        val cardBody = find(card()) { it is javax.swing.JTextArea } as JComponent
+        assertEquals("the card's body must carry the shared body font", RelayStyle.bodyFont(), cardBody.font)
+        assertEquals("the box's body must carry the same one", cardBody.font, bodyField().font)
+    }
+
     // -- The actions (R3) --
 
     /**

@@ -37,9 +37,11 @@ import javax.swing.JPanel
  *   parallel blue lines a few pixels apart read as a stripey margin, not as one object. It is also the
  *   fill the authoring box wears ([CommentDraft]), so a card and the box that edits it are the same
  *   object in two states.
- * - **Width cap.** The card panel is wrapped by [InlineWidth.capWidth] so the visible card is no wider
- *   than the editor's right-margin column (full width when no margin is configured), matching the
- *   authoring box.
+ * - **Live width.** The card measures and lays out at [InlineWidth.currentWidthPx] — the width the
+ *   editor has *now*, pushed down from its [InlineWidthWatcher] — and is pinned to the leading edge of
+ *   its full-width inlay row by [InlineWidth.pinLeading], matching the authoring box. The watcher
+ *   revalidates the card when that number changes, so narrowing the editor re-wraps the body and keeps
+ *   the header's trailing icons on screen instead of laying them out past the viewport's edge.
  * - **Reserved header.** The Edit/Delete actions are still revealed only on hover, but they now live
  *   *inside* the always-present header row, whose height is a constant captured at build time. That
  *   constant — not the old floating top-right overlay — is what keeps the block inlay's height
@@ -79,6 +81,10 @@ object StoredCommentCard {
             lineWrap = true
             wrapStyleWord = true
             border = JBUI.Borders.empty()
+            // Set explicitly, so the body stops inheriting `TextArea.font` — which the platform's LaF
+            // initialises to *Monospaced* while an EditorTextField (the box's body) carries the UI font,
+            // making one comment change typeface the moment it was opened for editing (design D6).
+            font = RelayStyle.bodyFont()
             // A read-only area still shows a text caret cursor by default; use the normal arrow.
             cursor = Cursor.getDefaultCursor()
         }
@@ -114,22 +120,28 @@ object StoredCommentCard {
         // doLayout (no layout manager is consulted) so hiding a button can never re-flow the row.
         val header = object : JPanel() {
             override fun doLayout() {
-                val labelSize = authorLabel.preferredSize
-                authorLabel.setBounds(
-                    0,
-                    (height - labelSize.height) / 2,
-                    labelSize.width.coerceAtMost(width),
-                    labelSize.height,
-                )
-                // Laid out right-to-left from the row's trailing edge; bounds are set whether or not the
-                // button is currently visible, so a reveal is a repaint rather than a layout.
+                // The icons are laid out FIRST, at their full width (design D5): they are the card's only
+                // actions, while the label is a fixed presentation constant carrying no information, so
+                // when the row is too narrow for both the label is what yields. Right-to-left from the
+                // row's trailing edge; bounds are set whether or not the button is currently visible, so
+                // a reveal is a repaint rather than a layout.
                 var right = width
                 for (button in listOf(deleteButton, editButton)) {
                     val size = button.preferredSize
                     right -= size.width
-                    button.setBounds(right, (height - size.height) / 2, size.width, size.height)
+                    // Never past the row's leading edge: an absurdly narrow card overlaps its two icons
+                    // rather than pushing one out of reach, which is the whole point of the reserve.
+                    button.setBounds(right.coerceAtLeast(0), (height - size.height) / 2, size.width, size.height)
                     right -= iconGap
                 }
+                // ...and the label takes what the icons left, truncated by its own bounds.
+                val labelSize = authorLabel.preferredSize
+                authorLabel.setBounds(
+                    0,
+                    (height - labelSize.height) / 2,
+                    labelSize.width.coerceAtMost(right.coerceAtLeast(0)),
+                    labelSize.height,
+                )
             }
         }.apply {
             isOpaque = true
@@ -140,38 +152,38 @@ object StoredCommentCard {
             add(deleteButton)
         }
 
-        // The card opens at the shared base width (~80 columns, clamped to the right-margin cap) rather
-        // than shrinking to a short body's width (comment-box-sizing feedback). Only the width is pinned;
-        // height is still driven by the reserved header plus the body, the latter measured at that fixed
-        // width so a multi-line comment reports the right height.
-        val baseWidth = InlineWidth.baseWidthPx(editor)
-
-        // Content width the body is measured AND laid out at — a fixed function of baseWidth, never of
-        // the card's own (possibly stretched) width. Keeping both sides on this one value is what stops
-        // the layout churn: getPreferredSize's guarded setSize settles to a no-op instead of fighting a
-        // doLayout that sized the body to a different width every pass (the feedback that pegged the CPU).
+        // Content width the body is measured AND laid out at — a fixed function of the width the EDITOR
+        // currently has, never of the card's own (possibly stretched) width. Keeping both sides on this
+        // one value is what stops the layout churn: getPreferredSize's guarded setSize settles to a
+        // no-op instead of fighting a doLayout that sized the body to a different width every pass (the
+        // feedback that pegged the CPU). The number is now live rather than captured at build time, but
+        // it is still an input pushed *down* from the editor — no measure path reads the card's own
+        // width, so the cycle still has no edge to close (design D1).
         // Every horizontal offset the card has rides its *border*, so it reaches both sides through
         // `insets` here and nowhere else — no second offset exists to keep in sync.
-        val contentWidth = { insets: java.awt.Insets -> (baseWidth - insets.left - insets.right).coerceAtLeast(1) }
+        val contentWidth = { insets: java.awt.Insets ->
+            (InlineWidth.currentWidthPx(editor) - insets.left - insets.right).coerceAtLeast(1)
+        }
 
         val card = object : JPanel() {
-            // Pin the outer width to baseWidth so the capWidth BoxLayout wrapper can't stretch the card
-            // toward the (wider) right-margin cap. This both keeps the card no wider than its reading
-            // column — so the header's trailing icons stay on screen — and makes the card's actual width
+            // Pin the outer width to the editor's current width so the pinLeading BoxLayout wrapper
+            // can't stretch the card past it. This both keeps the card no wider than the editor has room
+            // for — so the header's trailing icons stay on screen — and makes the card's actual width
             // equal the width the body is measured at.
-            override fun getMaximumSize(): Dimension = Dimension(baseWidth, Int.MAX_VALUE)
+            override fun getMaximumSize(): Dimension = Dimension(InlineWidth.currentWidthPx(editor), Int.MAX_VALUE)
 
             override fun getPreferredSize(): Dimension {
                 val insets = insets
                 val cw = contentWidth(insets)
-                // Wrap the body to that fixed content width before reading its height, so a multi-line
-                // comment measures correctly regardless of layout timing. Guarded so the setSize is a
-                // no-op once the body already has this width — the height never depends on the card's
-                // actual width, so it can't drive a re-layout loop.
+                // Wrap the body to that content width before reading its height, so a multi-line comment
+                // measures correctly regardless of layout timing — and so narrowing the editor re-wraps
+                // the body and grows the card taller instead of clipping the text. Guarded so the setSize
+                // is a no-op once the body already has this width — the height never depends on the
+                // card's actual width, so it can't drive a re-layout loop.
                 if (bodyArea.width != cw) bodyArea.setSize(cw, Int.MAX_VALUE)
                 // headerHeight is a build-time constant, so hover cannot move this number.
                 return Dimension(
-                    baseWidth,
+                    cw + insets.left + insets.right,
                     headerHeight + headerGap + bodyArea.preferredSize.height + insets.top + insets.bottom,
                 )
             }
@@ -180,8 +192,8 @@ object StoredCommentCard {
                 val insets = insets
                 val cw = contentWidth(insets)
                 header.setBounds(insets.left, insets.top, cw, headerHeight)
-                // Body is laid out at the SAME fixed content width getPreferredSize measures it at (not
-                // the card's actual width), so the two never diverge and the setSize guard stays satisfied.
+                // Body is laid out at the SAME content width getPreferredSize measures it at (not the
+                // card's actual width), so the two never diverge and the setSize guard stays satisfied.
                 bodyArea.setBounds(
                     insets.left,
                     insets.top + headerHeight + headerGap,
@@ -243,8 +255,21 @@ object StoredCommentCard {
         editButton.addMouseListener(hover)
         deleteButton.addMouseListener(hover)
 
-        // Cap the card at the editor's right margin (comment-box-sizing), same as the authoring box.
-        return InlineWidth.capWidth(card, InlineWidth.rightMarginPx(editor))
+        // Pin the card to the leading edge of its full-width inlay row (comment-box-sizing), same as the
+        // authoring box; the cap itself is the card's own maximum size above.
+        val root = InlineWidth.pinLeading(card)
+
+        // Follow the editor's width for as long as this card exists (design D3): re-size in place and
+        // revalidate — never dispose and re-add the inlay. `revalidate()` is the whole mechanism: it
+        // schedules the layout pass that reaches `EditorEmbeddedComponentManager$MyRenderer` →
+        // `synchronizeBoundsWithInlay`, which re-reads the preferred size and calls `Inlay.update()`
+        // itself (comment-box-editing-fidelity D2-R). The matching detach rides the inlay's disposal in
+        // [EditorReviewOverlay.addCard] — the inlay is what owns this component's lifetime.
+        InlineWidthWatcher.of(editor)?.attach(root) {
+            root.revalidate()
+            root.repaint()
+        }
+        return root
     }
 
     private fun iconButton(tooltip: String, icon: Icon, onClick: () -> Unit): InplaceButton =

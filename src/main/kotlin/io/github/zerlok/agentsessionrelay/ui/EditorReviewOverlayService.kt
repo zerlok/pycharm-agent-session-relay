@@ -20,21 +20,21 @@ import io.github.zerlok.agentsessionrelay.domain.Subject
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
 /**
- * Project-scoped owner of the per-editor [EditorReviewOverlay] **and** the per-document
- * [DocumentReviewMarkers] (ARCHITECTURE §3.3). It listens on the application-wide [EditorFactory] and
- * creates both on `editorCreated`, frees them on `editorReleased`, and seeds from
+ * Project-scoped owner of the per-editor [EditorReviewOverlay] and [InlineWidthWatcher] **and** of the
+ * per-document [DocumentReviewMarkers] (ARCHITECTURE §3.3). It listens on the application-wide
+ * [EditorFactory] and creates them on `editorCreated`, frees them on `editorReleased`, and seeds from
  * [EditorFactory.getAllEditors] at startup (that event fires only for editors opened afterward). It
  * handles only editors whose `project` matches, whose `editorKind == MAIN_EDITOR`, and whose document
  * has a file.
  *
- * The two have different scopes and therefore different lifetimes: an overlay is created and disposed
- * with its editor, while a document's markers exist while **any** qualifying editor shows that
- * document — created with the first, disposed after the last one's close flush (design D2). The
- * ref-count is the set of live overlays itself, so there is no second counter to fall out of step, and
- * both are driven entirely from this one `editorCreated`/`editorReleased` path — no extra platform
- * listener to leak.
+ * They have different scopes and therefore different lifetimes: an overlay and its width watcher are
+ * created and disposed with their editor, while a document's markers exist while **any** qualifying
+ * editor shows that document — created with the first, disposed after the last one's close flush
+ * (design D2). The ref-count is the set of live overlays itself, so there is no second counter to fall
+ * out of step, and all are driven entirely from this one `editorCreated`/`editorReleased` path — no
+ * extra platform listener to leak.
  *
- * Both are [Disposable]s parented to **this service** (never to the editor/project directly), so they
+ * All are [Disposable]s parented to **this service** (never to the editor/project directly), so they
  * also release on dynamic plugin unload; `editorReleased` disposes them eagerly.
  *
  * It is also the position-sync-point owner (ARCHITECTURE §3.2): besides the aggregate
@@ -123,6 +123,12 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
         val owner = markers.getOrPut(editor.document) {
             DocumentReviewMarkers(project, editor.document).also { Disposer.register(this, it) }
         }
+        // The inline surfaces' live width source (responsive-inline-comment-surfaces D2). Per *editor*,
+        // like the overlay and for the same reason — the viewport it watches is the editor's — but
+        // published on the editor rather than held here, because the box is built per project by
+        // [CommentDraftController] and must find the same one the card uses.
+        Disposer.register(this, InlineWidthWatcher.install(editor))
+
         val overlay = EditorReviewOverlay(project, editor, owner)
         Disposer.register(this, overlay)
         overlays[editor] = overlay
@@ -138,6 +144,9 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
         // of two leaves the markers alive, and the flush is idempotent anyway.
         markers[document]?.let { flush(it) }
         Disposer.dispose(overlay)
+        // After the overlay, so its cards have already detached from the watcher (a disposed card's
+        // inlay detaches it) rather than being notified by a watcher that outlives them.
+        InlineWidthWatcher.of(editor)?.let { Disposer.dispose(it) }
         // Last editor on this document: its markers have nothing left to paint into.
         if (overlays.values.none { it.document === document }) {
             markers.remove(document)?.let { Disposer.dispose(it) }

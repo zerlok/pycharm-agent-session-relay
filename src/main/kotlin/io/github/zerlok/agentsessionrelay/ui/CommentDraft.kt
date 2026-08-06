@@ -56,8 +56,9 @@ import kotlin.math.abs
  * One in-progress review comment: a blue rectangle over the commented line range plus an
  * inline comment box rendered as a block inlay *below* the range (it pushes the following code down
  * rather than floating over it — GitHub/GitLab style). The box inlay is full-width, but its visible
- * content is capped at the editor's right margin via [InlineWidth] (comment-box-sizing) so it reads
- * as a column rather than an edge-to-edge stripe.
+ * content is capped at [InlineWidth.currentWidthPx] — the width the editor has now, which the editor's
+ * [InlineWidthWatcher] keeps current — so it reads as a column rather than an edge-to-edge stripe and
+ * follows a split or a window resize instead of staying at the width it opened with.
  *
  * The commented range is **adjustable after the box opens** (`adjustable-comment-range`): the top
  * and bottom borders of the wash are draggable resize grips. Per D1, an edge-drag *hides* the box
@@ -148,6 +149,11 @@ class CommentDraft private constructor(
         isOpaque = true
         // Qualified: inside this apply block, a bare `editor` is EditorTextField's own (still-null) one.
         background = this@CommentDraft.editor.colorsScheme.defaultBackground
+        // The shared body font, set explicitly rather than inherited (design D6). EditorTextField
+        // forwards its Swing font to the inner editor by itself, so the mechanism is unchanged — but
+        // relying on that inheritance left the card and the box agreeing only by coincidence, and they
+        // did not: the card's JBTextArea inherits the LaF's *Monospaced* TextArea.font.
+        font = RelayStyle.bodyFont()
     }
     private val resizeCursor: Cursor = Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
 
@@ -178,8 +184,9 @@ class CommentDraft private constructor(
     }
 
     /**
-     * Applies the body's new height to the box on the edit that caused it. `revalidate()` is the whole
-     * mechanism (D2-R): it schedules the layout pass that reaches
+     * Applies the box's new size on the change that caused it — a body edit, or a width change pushed
+     * down by the editor's [InlineWidthWatcher], which share this one re-measure path rather than having
+     * two. `revalidate()` is the whole mechanism (D2-R): it schedules the layout pass that reaches
      * `EditorEmbeddedComponentManager$MyRenderer.doLayout`/`validate` →
      * `synchronizeBoundsWithInlay`, which reads the panel's *preferred* height, `setBounds`es the
      * renderer and calls [Inlay.update] itself. Calling [Inlay.update] from here instead would be
@@ -487,6 +494,14 @@ class CommentDraft private constructor(
             ?: return false
         inlay = newInlay
         boxPanel = panel
+        // Follow the editor's width for as long as this box is shown (responsive-inline-comment-surfaces
+        // D2/D3), registered only once the inlay exists so a failed open leaves nothing attached.
+        // Re-measuring goes through [scheduleRemeasure], the SAME deferred path a body edit uses rather
+        // than a second re-measure route: the body is an EditorTextField that recomputes soft wraps
+        // asynchronously, so a width change needs the same deferral a content change needed
+        // (comment-box-editing-fidelity D2-R). Detached in [hideBox], which every teardown goes through —
+        // including the edge-drag hide, after which the rebuilt panel re-attaches and re-reads the width.
+        InlineWidthWatcher.of(editor)?.attach(panel) { scheduleRemeasure() }
 
         addButton.addActionListener { doSubmit() }
         cancelButton.addActionListener { onClose() }
@@ -515,6 +530,9 @@ class CommentDraft private constructor(
     private fun hideBox() {
         inlay?.let { if (it.isValid) Disposer.dispose(it) }
         inlay = null
+        // The panel goes with the inlay, so its width registration must go too — a hidden box has
+        // nothing to re-measure, and the next [showBox] attaches the panel it builds.
+        boxPanel?.let { panel -> InlineWidthWatcher.of(editor)?.detach(panel) }
         boxPanel = null
     }
 
@@ -650,17 +668,21 @@ class CommentDraft private constructor(
                 add(Box.createHorizontalStrut(JBUI.scale(ACTION_GAP_DP)))
                 add(addButton)
             }
-            // Base horizontal size (comment-box-sizing feedback): open the box at the shared base width
-            // (~80 columns, clamped to the right-margin cap) instead of shrinking to the button row. The
-            // box still grows *taller* with the body (height stays super-driven); only width is pinned.
-            val cap = InlineWidth.rightMarginPx(editor)
-            val baseWidth = InlineWidth.baseWidthPx(editor)
+            // Horizontal size (comment-box-sizing feedback): the box is pinned to the width the EDITOR
+            // currently has — the same [InlineWidth.currentWidthPx] the card reads, so the two are
+            // identical by construction rather than by two similar calls — instead of shrinking to the
+            // button row. The box still grows *taller* with the body (height stays super-driven); only
+            // width is pinned, and it is pinned to an input pushed down from the editor, never to the
+            // box's own width (design D1).
             val content = object : JPanel(BorderLayout(0, JBUI.scale(6))), UiDataProvider {
                 override fun getPreferredSize(): Dimension {
                     val size = super.getPreferredSize()
-                    size.width = baseWidth
+                    size.width = InlineWidth.currentWidthPx(editor)
                     return size
                 }
+
+                // Keeps the pinLeading BoxLayout wrapper from stretching the box past that width.
+                override fun getMaximumSize(): Dimension = Dimension(InlineWidth.currentWidthPx(editor), Int.MAX_VALUE)
 
                 /**
                  * Scopes file-editor actions — undo/redo above all — to the box (D1-R). The box is a
@@ -713,10 +735,9 @@ class CommentDraft private constructor(
                     }
                 })
             }
-            // Cap the box at the editor's right margin (comment-box-sizing): a full-width inlay whose
-            // visible content is pinned to the leftmost reading-width column, or unchanged full width
-            // when no right margin is configured.
-            return InlineWidth.capWidth(content, cap)
+            // A full-width inlay whose visible content is pinned to the leftmost reading-width column
+            // (comment-box-sizing); the cap itself is the box's own maximum size above.
+            return InlineWidth.pinLeading(content)
         }
 
         private fun registerShortcuts(

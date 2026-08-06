@@ -216,6 +216,32 @@ a running IDE and recorded back here.
 4. Does the UI font read acceptably for comment bodies that quote code — identifiers, paths, short
    snippets — given that this is a code-review surface? If not, the alternative is the opposite
    parity: move the *box* to the editor font instead of the card to the UI font.
-5. Where exactly does `available` need to come from — `editor.scrollingModel.visibleArea.width`, or
+5. ~~Where exactly does `available` need to come from — `editor.scrollingModel.visibleArea.width`, or
    the scroll pane's viewport width less the real scrollbar and gutter as the reference implementation
-   computes it? The current `VISIBLE_MARGIN_DP = 16` fudge should disappear either way.
+   computes it? The current `VISIBLE_MARGIN_DP = 16` fudge should disappear either way.~~
+   **Decided at implementation time (2026-08-06): `editor.scrollingModel.visibleArea.width`, unadjusted**
+   (`InlineWidth.availableWidthPx`), with the `VISIBLE_MARGIN_DP` fudge deleted as agreed. Two reasons,
+   neither of which needs a display to state:
+   - That rectangle is the scroll pane's *viewport* rect, so the gutter (the scroll pane's row header)
+     and the vertical scrollbar are already outside it. `EditorTextWidthWatcher` subtracts them because
+     it starts from the raw viewport *component*; subtracting them again here would under-size the
+     surface by ~30px at every width.
+   - It is the same quantity the platform sizes a `fullWidth` block inlay's row from, so a surface
+     capped at it is capped at exactly the row it is laid out in — the two numbers cannot drift.
+   A non-zero value is required for it to cap at all: a not-yet-laid-out editor reports a zero-area
+   viewport, and treating that as `available = 0` would collapse every surface rather than leaving it at
+   the reading measure until the first resize arrives.
+   **Still to confirm in a running IDE:** whether the IDE's *overlay* scrollbar mode leaves the
+   scrollbar inside `visibleArea`, in which case the header's trailing icons would sit under it at
+   viewport-bound widths. If so the fix is local — subtract
+   `editor.scrollPane.verticalScrollBar.width` in `availableWidthPx` — and changes nothing else.
+
+**Answered in practice while implementing (2026-08-06), and worth recording against the questions above:**
+
+- The watcher reacts to a `VisibleAreaListener` as well as the three component events (a deviation from
+  D2's letter, kept because the *spec* requires a surface to follow "a change to the editor font size or
+  the right-margin setting", and neither resizes the editor's component). Whether a Ctrl+scroll font
+  change actually fires `visibleAreaChanged` is unverified here — it is question 3's neighbour and
+  belongs on the same running-IDE pass.
+- Nothing in questions 1–4 became decidable on this machine; they stay exactly as written and are the
+  content of the task 7.3 handover.
