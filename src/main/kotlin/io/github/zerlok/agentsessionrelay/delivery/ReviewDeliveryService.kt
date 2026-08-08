@@ -1,6 +1,7 @@
 package io.github.zerlok.agentsessionrelay.delivery
 
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -11,6 +12,8 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.concurrency.ThreadingAssertions
 import io.github.zerlok.agentsessionrelay.domain.Anchoring
@@ -20,7 +23,6 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subjects
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import io.github.zerlok.agentsessionrelay.ui.EditorReviewOverlayService
-import java.nio.file.Files
 import java.nio.file.Path
 
 /**
@@ -34,11 +36,20 @@ import java.nio.file.Path
  *
  * 1. **EDT** — flush live positions into the store and snapshot the batch. Store mutations are
  *    EDT-only.
- * 2. **Background** ([Task.Backgroundable]) — [verifyAnchors] reads file content and the write hits
- *    the filesystem. Neither is legal on the EDT, which is exactly why this stage could not live in
- *    the action and why verification used to be written against live editor markers instead of file
- *    content.
- * 3. **EDT** — apply the verdicts and take the clear-or-preserve decision, both store mutations.
+ * 2. **Background** ([Task.Backgroundable]) — [verifyAnchors] reads every commented file's content,
+ *    and resolving the artifact in the VFS needs a synchronous refresh. Neither is legal on the EDT,
+ *    which is exactly why this stage could not live in the action and why verification used to be
+ *    written against live editor markers instead of file content.
+ * 3. **EDT** — write the artifact through its [Document], apply the verdicts, and take the
+ *    clear-or-preserve decision.
+ *
+ * The write sits in stage 3, not stage 2, because **the export has to be visible to justify clearing
+ * the batch**. A raw filesystem write goes behind the platform's Document layer, so an open
+ * `REVIEW.md` keeps showing the previous export while the comments — the user's only copy, with no
+ * undo — are destroyed on the strength of the write not throwing. Writing the [Document] makes
+ * "written" and "visible" the same event, and Document mutations are EDT-plus-write-action by
+ * platform contract. What the off-EDT rule protects — a submit that does not freeze the IDE — is
+ * carried by stage 2, which holds the work that can actually block.
  *
  * The exported text must reflect the verdicts, which are only *stored* in stage 3 — so stage 2 plans
  * from the snapshot with the verdicts applied in memory. [ReviewExporter][io.github.zerlok.agentsessionrelay.export.ReviewExporter]
@@ -94,27 +105,36 @@ class ReviewDeliveryService(private val project: Project) {
 
         object : Task.Backgroundable(project, "Writing ${ReviewDelivery.FILE_NAME}", false) {
             private var verdicts: Map<CommentId, CommentStatus> = emptyMap()
-            private var outcome: Outcome = Outcome.NothingToSubmit
+            private var plan: ReviewDelivery.Plan = ReviewDelivery.Plan.NothingToSubmit
+            private var directory: VirtualFile? = null
 
-            // Stage 2 (background): the reads and the write, neither legal on the EDT.
+            // Stage 2 (background): the content reads, the plan, and the VFS lookup — none legal on
+            // the EDT. It decides *what* to write and hands stage 3 the exact text.
             override fun run(indicator: ProgressIndicator) {
                 verdicts = verifyAnchors(batch)
                 val verified = batch.map { comment -> verdicts[comment.id]?.let { comment.copy(status = it) } ?: comment }
-                outcome = when (val plan = ReviewDelivery.plan(verified, basePath)) {
-                    ReviewDelivery.Plan.NothingToSubmit -> Outcome.NothingToSubmit
-                    is ReviewDelivery.Plan.WriteReview -> Outcome.Written(write(basePath, plan.content))
+                plan = ReviewDelivery.plan(verified, basePath)
+                if (plan is ReviewDelivery.Plan.WriteReview) {
+                    directory = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(basePath))
+                        // Reload the directory's children, and do not settle for refreshing the
+                        // artifact's own path: a REVIEW.md deleted outside the IDE stays in the VFS as
+                        // a valid-looking file that a path refresh does not retract, and writing into
+                        // that phantom entry silently produces no file — a submit reporting success
+                        // over nothing, which is the failure this whole pipeline exists to prevent.
+                        ?.also { VfsUtil.markDirtyAndRefresh(/* async = */ false, /* recursive = */ false, true, it) }
                 }
             }
 
             // Task.Backgroundable runs onSuccess / onThrowable back on the EDT — stage 3.
-            override fun onSuccess() = finish(outcome, verdicts, onOutcome)
-
-            override fun onThrowable(error: Throwable) {
-                // Relay's only log line: a write failure reported from the field has to be diagnosable
-                // from idea.log, not only from a balloon the user has already dismissed.
-                thisLogger().warn("Failed to write ${ReviewDelivery.FILE_NAME} under $basePath", error)
-                finish(Outcome.Failed(error.message ?: error.javaClass.simpleName, error), verdicts, onOutcome)
+            override fun onSuccess() {
+                val outcome = when (val current = plan) {
+                    ReviewDelivery.Plan.NothingToSubmit -> Outcome.NothingToSubmit
+                    is ReviewDelivery.Plan.WriteReview -> write(basePath, directory, current.content)
+                }
+                finish(outcome, verdicts, onOutcome)
             }
+
+            override fun onThrowable(error: Throwable) = finish(failed(basePath, error), verdicts, onOutcome)
         }.queue()
     }
 
@@ -168,16 +188,59 @@ class ReviewDeliveryService(private val project: Project) {
         return document.getText(TextRange(document.getLineStartOffset(startLine), document.getLineEndOffset(endLine)))
     }
 
-    /** Writes the artifact and registers it with the VFS. Off the EDT — both calls require it. */
-    private fun write(basePath: String, content: String): Path {
-        val reviewPath = Path.of(basePath, ReviewDelivery.FILE_NAME)
-        Files.writeString(reviewPath, content)
-        // The raw nio write bypasses the VFS, so the new file wouldn't appear in Project view until an
-        // unrelated refresh. A targeted, synchronous VFS refresh registers it now — and must run here
-        // off the EDT (a synchronous VFS refresh on the EDT is disallowed). A null return (path
-        // unresolved) is benign: the file was just written.
-        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(reviewPath)
-        return reviewPath
+    /**
+     * Stage 3's write: put [content] into the artifact's [Document] — the object an open editor
+     * renders — inside a write action, then save it to disk.
+     *
+     * This is the whole point of the stage split changing. Writing the file directly leaves an open
+     * `REVIEW.md` showing the previous export, and a submit cannot tell that state apart from a
+     * successful one, so it clears the batch over it. Here the text the user sees and the text on
+     * disk are set by the same action, and a failure to reach the Document is a failure to submit.
+     *
+     * The write action is wrapped in a *command* because the target may be an open editor: the
+     * platform's undo and PSI-commit machinery expects a document change to arrive commanded.
+     *
+     * [directory] is the project base directory as stage 2 resolved it; a null one means the VFS
+     * cannot see the project root, which is a failure rather than something to write around.
+     */
+    private fun write(basePath: String, directory: VirtualFile?, content: String): Outcome {
+        ThreadingAssertions.assertEventDispatchThread()
+        if (directory == null) {
+            return Outcome.Failed("The project directory $basePath is not visible to the IDE.", null)
+        }
+        return try {
+            var document: Document? = null
+            WriteCommandAction.runWriteCommandAction(project, "Write ${ReviewDelivery.FILE_NAME}", null, {
+                val file = directory.findChild(ReviewDelivery.FILE_NAME)
+                    ?: directory.createChildData(this, ReviewDelivery.FILE_NAME)
+                document = FileDocumentManager.getInstance().getDocument(file)?.also {
+                    it.setText(content)
+                    // Saved here rather than left for the platform's autosave: the agent reads the
+                    // file, not the IDE's in-memory copy, and it is told the review is ready now.
+                    FileDocumentManager.getInstance().saveDocument(it)
+                }
+            })
+            when (document) {
+                // No document for the path: it is a directory, a binary, or otherwise not text. The
+                // artifact was NOT written, and the batch must survive to say so.
+                null -> Outcome.Failed("${ReviewDelivery.FILE_NAME} under $basePath cannot be written as text.", null)
+                else -> Outcome.Written(artifactPath(basePath))
+            }
+        } catch (error: Throwable) {
+            failed(basePath, error)
+        }
+    }
+
+    /** The artifact's path — what a caller renders, and what stage 2 refreshes into the VFS. */
+    private fun artifactPath(basePath: String): Path = Path.of(basePath, ReviewDelivery.FILE_NAME)
+
+    /**
+     * Relay's only log line: a write failure reported from the field has to be diagnosable from
+     * idea.log, not only from a balloon the user has already dismissed.
+     */
+    private fun failed(basePath: String, error: Throwable): Outcome.Failed {
+        thisLogger().warn("Failed to write ${ReviewDelivery.FILE_NAME} under $basePath", error)
+        return Outcome.Failed(error.message ?: error.javaClass.simpleName, error)
     }
 
     /** Stage 3 (EDT): record what verification found, then clear or preserve. */
@@ -187,8 +250,10 @@ class ReviewDeliveryService(private val project: Project) {
         // Idempotent: an unchanged status publishes nothing, so this cannot fight the editor-time
         // verdicts written by DocumentReviewMarkers.
         for ((id, status) in verdicts) service.updateStatus(id, status)
-        // Clear only after a successful write: the comments are the user's only copy, there is no undo,
-        // and a cleared batch is erased from persistent storage at the next save.
+        // Clear only against an export the user can see: the comments are the user's only copy, there
+        // is no undo, and a cleared batch is erased from persistent storage at the next save. Written
+        // is produced by the write action that put the text in the Document, so it cannot be true
+        // while the editor still shows the previous export.
         if (outcome is Outcome.Written) service.clear()
         onOutcome(outcome)
     }

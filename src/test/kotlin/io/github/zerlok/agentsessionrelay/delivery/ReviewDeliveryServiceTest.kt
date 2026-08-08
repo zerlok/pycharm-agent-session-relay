@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -97,6 +98,85 @@ class ReviewDeliveryServiceTest : BasePlatformTestCase() {
 
         assertEquals(ReviewDeliveryService.Outcome.NothingToSubmit, outcome)
         assertFalse("no artifact was written", Files.exists(artifactPath()))
+    }
+
+    // -- The export must be VISIBLE, not merely written --
+
+    /**
+     * The maintainer QA defect, as a test. With `REVIEW.md` open in an editor, the submit used to
+     * write behind the platform's Document layer: the editor kept showing the previous export while
+     * the batch was cleared, so the comments were destroyed with nothing to show for them.
+     *
+     * Asserted on the **document**, never on the file's bytes — the bytes were correct even while the
+     * defect was live, so a byte-level assertion passes against the unfixed code and guards nothing.
+     */
+    fun `test submitting with the artifact open updates what that editor shows`() {
+        val file = file("open-artifact.py", "line0\nline1\nline2\n")
+        service.addComment(Subject.Line(file.url, 1), "first pass", anchorText = "line1")
+        submit()
+        val artifact = openArtifactEditor()
+        assertFalse("the editor starts on the first export", artifact.document.text.contains("second pass"))
+
+        service.addComment(Subject.Line(file.url, 2), "second pass", anchorText = "line2")
+        submit()
+
+        assertTrue(artifact.document.text, artifact.document.text.contains("> second pass"))
+    }
+
+    /**
+     * The invariant the defect broke: the batch is cleared only against an export the user can see.
+     * Both halves are asserted after one submit, because it is their *pairing* that was lost — the
+     * clear happened, the visible export did not.
+     */
+    fun `test the batch is cleared only together with the document the user sees`() {
+        val file = file("paired.py", "line0\nline1\nline2\n")
+        service.addComment(Subject.Line(file.url, 1), "seed", anchorText = "line1")
+        submit()
+        val artifact = openArtifactEditor()
+        service.addComment(Subject.Line(file.url, 2), "must not be lost", anchorText = "line2")
+
+        submit()
+
+        assertTrue(artifact.document.text, artifact.document.text.contains("> must not be lost"))
+        assertEmpty("cleared, and the user can see why", service.comments())
+    }
+
+    /**
+     * The artifact does not exist yet on a first submit, so the write has to create it — and create it
+     * *in the VFS*, or the file the agent is told to read is invisible to the Project view.
+     */
+    fun `test a first submit creates the artifact and the IDE can see it`() {
+        val file = file("first-submit.py", "line0\nline1\nline2\n")
+        service.addComment(Subject.Line(file.url, 1), "brand new", anchorText = "line1")
+        assertFalse("the artifact must be absent for this to test creation", Files.exists(artifactPath()))
+
+        submit()
+
+        val artifact = LocalFileSystem.getInstance().findFileByNioFile(artifactPath())
+        assertNotNull("the created artifact is registered with the VFS", artifact)
+        assertTrue(artifactText().contains("> brand new"))
+    }
+
+    /**
+     * The artifact removed outside the IDE between two submits — the agent cleaning up after reading
+     * it, or the user deleting it. The VFS keeps a valid-looking entry for a file that is gone, and a
+     * refresh of that path alone does not retract it; writing into the phantom entry produces no file
+     * while the pipeline reports success and clears the batch. The same defect as an open `REVIEW.md`,
+     * reached from the other side.
+     */
+    fun `test a submit after the artifact was deleted outside the IDE writes a real file`() {
+        val file = file("deleted-artifact.py", "line0\nline1\nline2\n")
+        service.addComment(Subject.Line(file.url, 1), "first", anchorText = "line1")
+        submit()
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(artifactPath())
+        Files.delete(artifactPath())
+
+        service.addComment(Subject.Line(file.url, 2), "after the delete", anchorText = "line2")
+        val outcome = submit()
+
+        assertTrue("outcome was $outcome", outcome is ReviewDeliveryService.Outcome.Written)
+        assertTrue("the reported file must actually exist", Files.exists(artifactPath()))
+        assertTrue(artifactText().contains("> after the delete"))
     }
 
     // -- Verification against file content: a closed file is not an unverifiable case --
@@ -360,6 +440,13 @@ class ReviewDeliveryServiceTest : BasePlatformTestCase() {
         WriteAction.run<RuntimeException> { VfsUtil.saveText(file, text) }
     }
 
+    /** The artifact open in a real editor — the state the delivery defect was invisible without. */
+    private fun openArtifactEditor(): Editor {
+        val artifact = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(artifactPath())
+            ?: error("the artifact must exist before it can be opened")
+        return openEditor(artifact)
+    }
+
     private fun openEditor(file: VirtualFile): Editor {
         val document = FileDocumentManager.getInstance().getDocument(file)!!
         val editor = EditorFactory.getInstance()
@@ -391,6 +478,10 @@ class ReviewDeliveryServiceTest : BasePlatformTestCase() {
         Files.createDirectories(Path.of(project.basePath!!))
         val path = artifactPath()
         if (Files.isDirectory(path)) Files.delete(path) else Files.deleteIfExists(path)
+        // The tests now go through the VFS and its documents, and the project is shared across
+        // methods — so the deletion has to be visible there too, or the next method inherits a stale
+        // cached file and the document that was loaded from it.
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)
     }
 
     private fun statusOf(id: CommentId): CommentStatus = service.comments().single { it.id == id }.status
