@@ -245,3 +245,55 @@ a running IDE and recorded back here.
   belongs on the same running-IDE pass.
 - Nothing in questions 1–4 became decidable on this machine; they stay exactly as written and are the
   content of the task 7.3 handover.
+
+---
+
+## Running-IDE QA outcomes (maintainer, 2026-08-06)
+
+Task 7.3 run against commit `73d6605`. Recorded here per that task rather than ticked, because one
+item found a new defect and two remain unexercised.
+
+**Q1 — does the card re-wrap and grow when the editor narrows? YES.** The reported defect is fixed:
+at a narrow editor the Edit/Delete icons are laid out inside the card and are visible. D3's assumption
+(a width change reaches `synchronizeBoundsWithInlay` like a content change does) holds.
+
+**Q5 — `visibleArea.width` is the right rect, but it is not the usable width. NEW DEFECT.**
+Observed: "the delete icon is like under the right rectangle that has *no problems found*, and the
+right border of the comment is also behind it."
+
+That rectangle is the editor's **inspections widget**. It — and the error-stripe scrollbar — *float
+over* the content area at the top-right; they are not part of the scroll pane's layout. So
+`visibleArea.width` correctly describes the viewport, our surface correctly fills it, and the widget
+then covers the surface's trailing edge. The Q5 decision is not wrong; it is incomplete. **The usable
+width is narrower than the viewport width**, and nothing in `InlineWidth` accounts for the overlay.
+
+Two candidate fixes, unresolved — this is the decision the next change must make:
+
+- **(a) Subtract the overlays** in `InlineWidth.availableWidthPx`: the vertical scrollbar plus the
+  inspections widget. Local and small. *Risk:* the widget's width may not be reachable through a
+  stable 2024.2 API, in which case this degenerates into a hardcoded inset — i.e. it reintroduces the
+  `VISIBLE_MARGIN_DP` fudge this change deleted, to patch a fudge. Verify the API before committing to
+  this route.
+- **(b) Hand sizing to the platform**: `Editor.addComponentInlay(…, ComponentInlayAlignment.FIT_VIEWPORT_WIDTH)`
+  (`com.intellij.openapi.editor`, `platform-impl` — stable, not collaboration-tools). This is what the
+  GitHub and GitLab review plugins use, and their inline comments do not slide under the inspections
+  widget. It would delete most of `InlineWidth`, including `pinLeading`, whose BoxLayout+glue capping
+  is still unconfirmed anyway. *Larger:* it changes the rendering path, so it wants its own change.
+
+Assistant's recommendation at handover time was **(b)**, on the grounds that this is the second time a
+hand-derived width has been wrong, and (a) risks patching a fudge with a fudge. Not decided — the
+maintainer had not chosen when the session ended.
+
+**Q4 — the UI-font body reads acceptably.** No request to reverse the parity direction.
+
+**Not observed, still open:**
+
+- **Q2** — whether one deferred `revalidate()` suffices for the box's async soft wraps. The maintainer
+  split the editor while a box was open, but the observation recorded was about card/box visibility
+  across splits (which behaved per spec), not about the box re-measuring at a new width.
+- **Q3** — resize-drag smoothness with several cards in one file.
+
+**Not a defect — behaviour confirmed correct by design:** Ctrl+scroll changes the editor font size and
+does *not* re-size the surfaces. That is intended since task 1.3 replaced the 80-editor-column rule
+with a **UI-font-relative** reading measure; editor font size is no longer an input to surface width.
+Only the viewport is. The 7.3 checklist item was written before that decision and is stale.
