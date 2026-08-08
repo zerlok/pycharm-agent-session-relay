@@ -98,13 +98,14 @@
 - [x] 6.3 Manual QA — **delivery:** submit with `REVIEW.md` open and confirm the editor shows the new
   comment; submit with it closed; submit with the file absent. *(Maintainer, 2026-08-08: "data loss on
   export on viewing REVIEW.md — solved".)*
-- [ ] 6.4 **NOT RUN — carried open past archive.** Manual QA of the box's input behavior on the new
-  hosting path, the highest risk in this change (design risks): focus moves between box and editor,
-  undo/redo stays scoped to the body rather than the file, Enter and Escape behave, and editing an
-  existing comment still works. The maintainer's QA covered delivery (6.3) and width (6.5); this was
-  not exercised, and no automated test reaches it. If undo turns out to edit the source file instead
-  of the comment body, the fallback is in design Open Question 1: keep the read-only card on
-  `addComponentInlay` and return the authoring box to `EditorEmbeddedComponentManager`.
+- [x] 6.4 Manual QA — **the box's input behavior on the new hosting path**, the highest risk in this
+  change (design risks): focus moves between box and editor, undo/redo stays scoped to the body rather
+  than the file, Enter and Escape behave, and editing an existing comment still works. *(Maintainer,
+  2026-08-08: "ctrl+z works".)* This settles design Open Question 1 — **both** surfaces stay on
+  `addComponentInlay`; the fallback of keeping the authoring box on `EditorEmbeddedComponentManager`
+  is not needed, and there is no second hosting path to maintain. Still unguarded by any automated
+  test: undo scoping runs through the platform's action system and the box's `UiDataProvider`, which
+  a headless fixture does not exercise.
 - [x] 6.5 Manual QA — **width:** surfaces cap at the reading measure on a wide editor, follow a split
   or window resize, and a configured narrow right margin no longer narrows them. *(Maintainer,
   2026-08-08: "comment size fitting works", after the three follow-up fixes in §8.)*

@@ -228,8 +228,8 @@ neither half writes persistent state in a new format.
 
 ## Open Questions
 
-1. **Does the box move too, or only the card?** The risk table's fallback is one hosting path for the
-   read-only card and the old one for the authoring box. Preferred: move both, and treat a focus or
-   undo regression as a blocker rather than a reason to split.
+1. ~~**Does the box move too, or only the card?**~~ **RESOLVED:** both moved. The maintainer confirmed
+   on 2026-08-08 that undo inside the box still acts on the comment body, so the split-hosting
+   fallback is not needed and Relay keeps one placement path.
 2. **§8's charter** — confirmed the correction (D6) is what the maintainer wants recorded, given the
    API's real status is experimental rather than stable.
