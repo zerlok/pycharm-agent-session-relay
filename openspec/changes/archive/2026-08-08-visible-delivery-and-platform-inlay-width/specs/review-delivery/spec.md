@@ -1,8 +1,5 @@
-# review-delivery Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change review-delivery. Update Purpose after archive.
-## Requirements
 ### Requirement: Write the exported review to REVIEW.md
 
 On submit, the plugin SHALL serialize the pending comments (via the Exporter) and write the result
@@ -37,28 +34,6 @@ verify anchors — SHALL run off the EDT.
 - **THEN** the per-file content reads that verify anchors execute on a background thread and the UI
   remains responsive
 
-### Requirement: Empty submit writes nothing and informs the user
-
-The plugin SHALL treat a submit with no pending comments as a no-op: no `REVIEW.md` is written and
-the user is informed there is nothing to submit.
-
-#### Scenario: No comments to submit
-
-- **WHEN** the user invokes submit with no pending comments
-- **THEN** no `REVIEW.md` is written and the user is told there is nothing to submit
-
-### Requirement: Notify the user that the review is ready
-
-After `REVIEW.md` is written, the plugin SHALL notify the user that the file is ready at the project
-root, so the user can return to their idle session and ask the agent to read it. The plugin SHALL
-NOT open a connection to the agent or type into any terminal in this change.
-
-#### Scenario: Notification on successful write
-
-- **WHEN** the user submits a review with at least one pending comment
-- **THEN** `REVIEW.md` is written at the project root and the user is shown a notification that it is
-  ready to hand to the agent
-
 ### Requirement: Clear pending comments after a successful submit
 
 After a submit whose export has reached the platform's document for `REVIEW.md`, the plugin SHALL
@@ -85,26 +60,3 @@ document, the batch SHALL be left intact.
 - **WHEN** `REVIEW.md` is open in an editor and the user submits
 - **THEN** the open editor shows the new export and the batch is cleared, or the batch is left
   intact — the comments are never cleared while the user is looking at the previous export
-
-### Requirement: Own the submit pipeline in the delivery layer
-
-The delivery layer SHALL own the whole submit pipeline: flushing live positions, verifying anchors,
-exporting, writing `REVIEW.md`, refreshing the VFS, and clearing or preserving the batch. A
-presentation-layer action SHALL NOT own any stage of it; the editor action SHALL do no more than
-invoke the pipeline and render the resulting user-facing messages.
-
-The pipeline SHALL be invocable without an editor action event, so that its outcome — in particular
-the clear-versus-preserve decision — is reachable from a test.
-
-#### Scenario: Submit is driven from the delivery layer
-
-- **WHEN** the user invokes submit
-- **THEN** the flush, verification, export, write, refresh, and clear/preserve decision are performed
-  by the delivery layer, and the action contributes only the invocation and the notifications
-
-#### Scenario: The outcome is testable without an action event
-
-- **WHEN** a test drives the submit pipeline directly
-- **THEN** it can observe whether the batch was cleared or preserved without constructing an editor
-  action event
-

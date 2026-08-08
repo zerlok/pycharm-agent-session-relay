@@ -46,9 +46,14 @@ it can be clicked. At most one such affordance is shown within the project at a 
 Clicking the add-comment affordance SHALL open a comment box rendered inline as a block below the
 target line range, with the target lines visually highlighted in both the code area and the
 line-number gutter (a colored bar in the gutter alongside the wash over the code). The box SHALL be
-sized no wider than the editor's configured right margin (its vertical guide column); when the
-editor has no right margin configured (guide disabled or a non-positive column), the box SHALL fall
-back to spanning the full editor width. The box height SHALL start from a compact minimum and grow
+sized to the width the editor actually has, by the same rule as the stored comment's card (see
+`review-batch` "Render stored comments as an inline card"): sizing delegated to the platform's own
+viewport-fitting inline component placement, never wider than the editor's available content width
+less any part of it covered by the editor's floating inspections widget, and additionally capped at a
+comfortable reading measure. The box SHALL NOT be capped at the editor's
+configured right margin. That sizing SHALL **track** the editor rather than being fixed when the box
+is opened, so a split or a window resize while the box is open re-sizes the box instead of leaving it
+at the width it opened with. The box height SHALL start from a compact minimum and grow
 with the typed body rather than reserving a fixed multi-row floor. That height change SHALL be
 applied on the edit that changes the body: when the body gains or loses a visual line, the box SHALL
 re-measure and the code below it SHALL reflow as part of handling that edit, without waiting for an
@@ -96,15 +101,30 @@ to the selection.
   and the target line is 16
 - **THEN** the range resolves to the selection's trimmed range 10–15 rather than to line 16 alone
 
-#### Scenario: Box width is capped at the right margin
+#### Scenario: Box is capped at a reading measure
 
-- **WHEN** the editor has a configured right margin and the comment box opens
-- **THEN** the box is no wider than the right-margin column, regardless of the editor's full width
+- **WHEN** the editor is wider than the reading measure and the comment box opens
+- **THEN** the box is no wider than the reading measure rather than spanning the full editor width
 
-#### Scenario: Box falls back to full width without a right margin
+#### Scenario: Box stays clear of the inspections widget
 
-- **WHEN** the editor has no configured right margin (guide disabled or a non-positive column)
-- **THEN** the comment box spans the full editor width, as before this change
+- **WHEN** the editor is narrower than the reading measure, so the box fills the available width, and
+  the editor's inspections widget floats over the trailing edge of the viewport
+- **THEN** the box ends where that widget begins, so its action row is neither covered by it nor
+  pushed out of reach
+
+#### Scenario: A narrow right margin does not narrow the box
+
+- **WHEN** the editor has a right margin configured well below the reading measure, and the editor is
+  wider than the reading measure
+- **THEN** the box opens at the reading measure — the right-margin column does not cap it
+
+#### Scenario: Open box follows the editor when it narrows
+
+- **WHEN** the comment box is open and the editor's available width shrinks below the box's current
+  width — for example the user splits the editor to the right
+- **THEN** the box is re-sized to the narrower width, its body re-wraps to fit, and its action row
+  stays inside the visible editor area
 
 #### Scenario: Short body keeps the box compact
 
@@ -555,12 +575,18 @@ secondary action SHALL remain unfilled. Neither action SHALL paint a background 
 shape — the box's fill SHALL show through around both. The action row SHALL end at the body field's
 trailing edge, so the actions and the field share one right-hand alignment.
 
-The plugin's accent, its filled-surface variant, the range wash and the shared surface fill SHALL
-each be defined in exactly one place, so that the card, the box, the range wash and the gutter bar
-cannot drift apart.
+The box's body and the card's body SHALL be rendered in the **same font**, so that a comment does not
+change typeface when the user opens it for editing. Neither surface SHALL take that font from the
+default its Swing component class happens to inherit, because those defaults differ between the two
+component kinds and would silently reintroduce the mismatch.
+
+The plugin's accent, its filled-surface variant, the range wash, the shared surface fill and the
+shared body font SHALL each be defined in exactly one place, so that the card, the box, the range
+wash and the gutter bar cannot drift apart.
 
 This requirement governs presentation only. The box's range anchoring, its width and height behavior,
-its focus and keystroke ownership, and its submit and cancel semantics are unchanged.
+its focus and keystroke ownership, and its submit and cancel semantics are governed elsewhere and are
+unchanged by *this* requirement.
 
 #### Scenario: Editing a comment keeps the card's appearance
 
@@ -611,4 +637,10 @@ its focus and keystroke ownership, and its submit and cancel semantics are uncha
 
 - **WHEN** the user presses the "Comment" action while editing an existing comment
 - **THEN** that comment is updated in place, exactly as before the action was renamed
+
+#### Scenario: The body font does not change between card and box
+
+- **WHEN** the user reads a stored comment's card and then chooses Edit on it
+- **THEN** the body text is shown in the same font in both, so the box reads as the same object in a
+  different state rather than as a different panel
 

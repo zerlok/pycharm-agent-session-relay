@@ -195,6 +195,12 @@ dispose removed, leave the rest). Key rules (per-decision detail in [
 - **Disposer to the service, not the editor alone.** Parent per-editor disposables to the
   project `@Service` so they release on dynamic plugin unload too; dispose them in
   `editorReleased`. Never parent to `Project` / `Application` directly.
+- **Inline surfaces are component inlays.** Both the card and the authoring box go through
+  `Editor.addComponentInlay(offset, InlayProperties(), component, ComponentInlayAlignment
+  .FIT_VIEWPORT_WIDTH)`, not `EditorEmbeddedComponentManager`. The alignment is what makes a
+  surface span the editor's viewport and re-lay itself out on every visible-area change; the
+  plugin's only remaining width decision is the reading-measure cap applied inside that row by
+  `ReadingWidthRow`. Deriving the width from the editor by hand is what this replaced, twice.
 - **Highlight & gutter on the document markup** (`DocumentMarkupModel.forDocument`, shared
   across splits); **inlays are per-editor** (`InlayModel` lives on the editor). These two
   scopes differ, so a comment's markers are owned **once per document** even though cards
@@ -287,8 +293,14 @@ line mapping tracked separately.
 
 - SSH / external processes / snapshot hashing / export process → **background** (never
   EDT); hand background code an **immutable snapshot** of the batch taken on the EDT. The submit
-  pipeline hops exactly once for this reason: EDT position flush → background anchor verification
-  and `REVIEW.md` write → EDT status writes and the clear-or-preserve decision.
+  pipeline hops exactly once for this reason: EDT position flush → background anchor verification,
+  planning and VFS lookup → EDT `REVIEW.md` write, status writes and the clear-or-preserve decision.
+- **The `REVIEW.md` write is on the EDT, deliberately.** It goes through the artifact's `Document`
+  inside a `WriteCommandAction`, because clearing the batch — the user's only copy, no undo — may
+  only be authorized by an export the user can *see*, and a filesystem write behind the Document
+  layer leaves an open `REVIEW.md` showing the previous export. Document mutations are
+  EDT-plus-write-action by platform contract. What "write off the EDT" protected — a submit that
+  does not freeze the IDE — is carried by the background stage, which holds the file reads.
 - **`WriteCommandAction` is only for Document/PSI/VFS edits.** Adding, deleting, or
   re-anchoring a comment mutates Relay's *own* state, not the document — do it on the EDT
   without a write command.
@@ -381,15 +393,27 @@ user-authored, mutable comment markers, which ride a `GutterIconRenderer` on the
 `com.intellij.collaboration.*`. The reason is **API stability, not licensing** — the module is
 Apache-2.0 like the rest of intellij-community, and its code-review editor package is
 `@ApiStatus.Experimental` (not `@Internal`). Relay owns its comment model rather than binding
-it to an experimental API it does not control. *Also unverified: whether
-`intellij.platform.collaborationTools` is bundled in PyCharm Community 2024.2 at all.*
+it to an experimental API it does not control. (`intellij.platform.collaborationTools` **is**
+bundled in PyCharm Community 2024.2.5, as `lib/modules/` — the rule stands on stability, not
+on absence.)
 
 This is a rule about **taking a dependency**, not about reading the code. The GitHub and
 GitLab plugins are the reference implementations of an in-editor review surface, and several
-things Relay needs sit in the **stable platform**, not in that module — notably
-`Editor.addComponentInlay` / `ComponentInlayRenderer` / `ComponentInlayAlignment`
-(`platform-impl`), `EditorScrollingPositionKeeper`, `ActiveGutterRenderer` +
+things Relay needs sit in the platform rather than in that module — notably
+`Editor.addComponentInlay` / `ComponentInlayRenderer` / `ComponentInlayAlignment`,
+`EditorScrollingPositionKeeper`, `ActiveGutterRenderer` +
 `reserveLeftFreePaintersAreaWidth`, and `DocumentTracker` / `LineStatusTrackerBase`
 (platform VCS) for mapping a line across an out-of-IDE rewrite. Using those is in-charter.
+
+**Correction, and the ground the inlay dependency actually stands on.** This section used to
+call the `ComponentInlay*` API *stable* and contrast it with collaboration-tools on that basis.
+It is not: all three of those classes are `@ApiStatus.Experimental` in the 2024.2.5 target — the
+same status as the package the rule above rejects. The distinction that does hold is a different
+one: they live in the public `com.intellij.openapi.editor` package, whereas the alternative Relay
+used before them, `EditorEmbeddedComponentManager`, lives in `openapi.editor.**impl**` and carries
+no stability contract at all. Depending on an experimental public API is a step *toward* stability
+from there, and it is the API the platform's own review-comment inlays are built on, so it will not
+be withdrawn without a replacement. Both surfaces reach it through one construction site each, so a
+revert is local.
 
 **Study freely:** the GitHub/GitLab plugins (Apache-2.0), Plannotator (Apache-2.0/MIT).

@@ -116,20 +116,34 @@ The card SHALL NOT carry an accent bar or any other accent-colored edge of its o
 range SHALL be marked in the accent color in exactly one place — the gutter bar over its lines — so
 that a card and the lines it annotates are tied by one mark rather than by two parallel lines.
 
+The card's body text SHALL be rendered in the same font as the authoring box's body, so that a
+comment does not change typeface when it is opened for editing. That font is one of the values
+required to be defined in a single place by `review-annotation` "Present the authoring box as the
+stored card's editing state".
+
 Each card SHALL carry an always-present header row above its body, showing an author label and
 hosting the card's Edit and Delete affordances. The author label SHALL be a presentation-level value
 in this capability; no author field is added to the stored comment record. The Edit and Delete
 affordances SHALL remain revealed on hover rather than shown permanently, and SHALL be revealed
 **inside** the reserved header row, so that the card's rendered height is identical whether or not
-the pointer is over it and revealing the affordances never reflows the code below the card.
+the pointer is over it and revealing the affordances never reflows the code below the card. Those
+affordances SHALL remain inside the card's visible bounds at every editor width, so the user can
+always reach them; when the header row is too narrow to show both the author label and the
+affordances, the affordances SHALL win and the author label SHALL be truncated.
 
-The card SHALL be sized no wider than the editor's configured right margin (its vertical guide
-column); when the editor has no right margin configured (guide disabled or a non-positive column),
-the card SHALL fall back to spanning the full editor width. The card's height SHALL fit its header
-row plus its body, so a short comment still reserves little vertical space. The cards SHALL be
-derived from the store and reconciled when the batch changes (add, update, delete, clear), following
-the same single-source-of-truth rule as the tool window. A card SHALL NOT be rendered for a comment
-while that comment is open in an edit box.
+The card SHALL be sized to the width the editor actually has, and that sizing SHALL be **delegated to
+the platform's own viewport-fitting inline component placement** rather than derived by the plugin
+from the editor's geometry. The card SHALL never render wider than the editor's available content
+width, and SHALL additionally be capped at a comfortable reading measure. The card SHALL NOT be
+capped at the editor's configured right margin: a narrow vertical guide column SHALL leave the card's
+width unchanged. Sizing SHALL **track** the editor rather than being fixed when the card is built:
+when the editor's available width changes — a split, a window resize — the card SHALL be re-sized to
+the new width. The card's height SHALL fit its header row plus its body **at the width the card
+currently has**, so a short comment still reserves little vertical space and narrowing the card
+re-wraps its body and grows it taller rather than clipping the text. The cards SHALL be derived from
+the store and reconciled when the batch changes (add, update, delete, clear), following the same
+single-source-of-truth rule as the tool window. A card SHALL NOT be rendered for a comment while that
+comment is open in an edit box.
 
 #### Scenario: Card appears under a commented range
 
@@ -148,6 +162,12 @@ while that comment is open in an edit box.
 - **THEN** the accent color appears only in the gutter bar over those lines, and the card's own frame
   carries no accent-colored edge
 
+#### Scenario: Card body matches the editing box's font
+
+- **WHEN** the user opens a stored comment for editing and then submits or cancels
+- **THEN** the body text is rendered in the same font throughout — the card and the box do not differ
+  in typeface, so the comment does not appear to change identity
+
 #### Scenario: Header row is always present
 
 - **WHEN** a stored comment's card is at rest, with the pointer elsewhere
@@ -159,6 +179,17 @@ while that comment is open in an edit box.
 - **WHEN** the pointer moves onto a resting card
 - **THEN** the Edit and Delete affordances appear within the already-present header row, and they
   disappear again when the pointer leaves the card
+
+#### Scenario: Actions stay reachable when the editor is narrow
+
+- **WHEN** the editor area is narrower than the card's preferred width — for example after splitting
+  the editor to the right or shrinking the IDE window — and the user hovers a card
+- **THEN** the Edit and Delete affordances are rendered inside the visible card and can be clicked
+
+#### Scenario: The author label yields before the actions do
+
+- **WHEN** the header row is too narrow to show both the author label and the Edit/Delete affordances
+- **THEN** the affordances are shown in full and the author label is truncated
 
 #### Scenario: Card height is identical at rest and on hover
 
@@ -175,15 +206,35 @@ while that comment is open in an edit box.
 - **WHEN** the user deletes a comment
 - **THEN** its inline card is removed from every editor showing the file
 
-#### Scenario: Card width is capped at the right margin
+#### Scenario: Card is capped at a reading measure
 
-- **WHEN** the editor has a configured right margin
-- **THEN** the card is no wider than the right-margin column, regardless of the editor's full width
+- **WHEN** the editor is wider than the reading measure
+- **THEN** the card is no wider than the reading measure rather than spanning the full editor width
 
-#### Scenario: Card falls back to full width without a right margin
+#### Scenario: Card stays clear of the inspections widget
 
-- **WHEN** the editor has no configured right margin (guide disabled or a non-positive column)
-- **THEN** the card spans the full editor width, as before this change
+- **WHEN** the editor is narrower than the reading measure, so the card fills the available width, and
+  the editor's inspections widget floats over the trailing edge of the viewport
+- **THEN** the card ends where that widget begins, so its Edit and Delete affordances are neither
+  covered by it nor pushed out of reach
+
+#### Scenario: A narrow right margin does not narrow the card
+
+- **WHEN** the editor has a right margin configured well below the reading measure, and the editor is
+  wider than the reading measure
+- **THEN** the card is still rendered at the reading measure — the right-margin column does not cap it
+
+#### Scenario: Card follows the editor when it narrows
+
+- **WHEN** a card is rendered and the editor's available width then shrinks below the card's current
+  width
+- **THEN** the card is re-sized to the narrower width, its body re-wraps to fit, and no part of the
+  card is left outside the visible editor area
+
+#### Scenario: Card follows the editor when it widens again
+
+- **WHEN** the editor's available width grows back above the card's current width
+- **THEN** the card widens again, up to its reading measure, rather than staying at the narrower width
 
 #### Scenario: Short comment keeps the card compact
 
@@ -284,20 +335,28 @@ delete it. This SHALL happen when the file's editor opens — never on the `load
 
 ### Requirement: Verify each comment's anchor before an export
 
-At the export sync point, after live positions have been flushed, the plugin SHALL verify each
-line-anchored comment whose file is open by comparing the comment's recorded anchor text against the
-text its live marker currently spans. A comment whose anchor text still matches SHALL be `ACTIVE`. A
-comment whose anchor text no longer matches SHALL be marked `STALE`. Verification SHALL be a pure
-comparison — it SHALL NOT search for the anchor elsewhere in the file and SHALL NOT move the
-comment.
+At the export sync point, after live positions have been flushed, the plugin SHALL verify **every**
+line-anchored comment that carries a recorded anchor text, by comparing that text against the text
+found at the comment's recorded line range in its file's **current content**. Verification SHALL
+consult the file's content, not a live editor marker, so a comment is verified whether or not its
+file happens to be open. When the file is open its in-memory document is the current content; when it
+is not, the content is loaded from disk.
 
-A comment SHALL NOT be marked `STALE` merely because its line numbers changed: in-IDE edits above a
-comment shift its marker and its anchor text is unchanged, so it stays `ACTIVE`. Only a change to the
+A comment whose anchor text still matches SHALL be `ACTIVE`. A comment whose anchor text no longer
+matches SHALL be marked `STALE`. A comment whose recorded line range does not exist in the current
+content at all SHALL be marked `ORPHANED`. Verification SHALL be a pure comparison — it SHALL NOT
+search for the anchor elsewhere in the file and SHALL NOT move the comment.
+
+A comment SHALL NOT be marked `STALE` merely because its line numbers changed: an edit above a
+comment shifts its range and its anchor text is unchanged, so it stays `ACTIVE`. Only a change to the
 text *under* the comment makes it stale.
 
-A comment that cannot be verified — its file is not open, or it carries no recorded anchor text —
-SHALL keep its current status rather than being marked stale by default, so that absence of evidence
-is not reported to the agent as evidence of drift.
+A comment that genuinely cannot be verified — it carries no recorded anchor text, or its file cannot
+be read — SHALL keep its current status rather than being marked stale by default, so that absence of
+evidence is not reported to the agent as evidence of drift. A closed file SHALL NOT count as
+unverifiable.
+
+Reading file content is I/O and SHALL NOT run on the EDT.
 
 #### Scenario: Untouched comment stays active
 
@@ -312,18 +371,34 @@ is not reported to the agent as evidence of drift.
 
 #### Scenario: A shift above the comment does not make it stale
 
-- **WHEN** lines are inserted above a commented range, shifting its marker, but the commented lines
+- **WHEN** lines are inserted above a commented range, shifting it, but the commented lines
   themselves are unchanged, and a review is exported
 - **THEN** the comment remains `ACTIVE` and its exported reference uses the shifted line range
 
-#### Scenario: An unopened file is not reported as drifted
+#### Scenario: A closed file's comment is still verified
 
-- **WHEN** a review is exported and a comment's file is not open in any editor
-- **THEN** the comment keeps its current status and is not marked `STALE`
+- **WHEN** a comment is authored, its file is closed, the file is then changed on disk so that
+  different text occupies the comment's recorded lines, and a review is exported
+- **THEN** the comment is marked `STALE`, exactly as it would be had the file stayed open
+
+#### Scenario: A comment whose lines no longer exist is orphaned at export
+
+- **WHEN** a comment recorded at lines 300–301 is exported and its file is now 50 lines long
+- **THEN** the comment is marked `ORPHANED` and its stored line range is unchanged
+
+#### Scenario: A comment with no recorded anchor keeps its status
+
+- **WHEN** a review is exported and a comment carries no recorded anchor text
+- **THEN** it keeps its current status and is not marked `STALE`
+
+#### Scenario: An unreadable file does not drift its comments
+
+- **WHEN** a review is exported and a comment's file cannot be read
+- **THEN** the comment keeps its current status
 
 #### Scenario: Verification never relocates a comment
 
-- **WHEN** a comment is marked `STALE` at export
+- **WHEN** a comment is marked `STALE` or `ORPHANED` at export
 - **THEN** its stored line range is unchanged; the plugin does not search for its anchor text
   elsewhere in the file
 

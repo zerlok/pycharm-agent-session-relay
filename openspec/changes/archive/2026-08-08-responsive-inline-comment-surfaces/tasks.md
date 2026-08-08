@@ -119,7 +119,7 @@
 - [x] 7.2 `./gradlew test` — green, with no existing test loosened to accommodate the change. —
       `./gradlew test --rerun-tasks`: 184 tests, 0 failures (167 before, +17 new). No existing
       assertion was weakened or deleted.
-- [ ] 7.3 Running-IDE checklist — **cannot be run on this machine** (no display). Hand it over and
+- [x] 7.3 Running-IDE checklist — **cannot be run on this machine** (no display). Hand it over and
       record outcomes in design.md "## Open Questions" rather than claiming any of it verified:
       - split the editor right with a card visible → its Edit/Delete icons stay reachable and its body
         re-wraps instead of being clipped (the reported defect);
@@ -134,3 +134,9 @@
       - **added while implementing:** at a viewport-bound width, check the header's icons are not under
         the vertical scrollbar — if they are, `InlineWidth.availableWidthPx` must subtract it (design
         Open Question 5).
+
+  **Handed over and run by the maintainer** across 2026-08-06 and 2026-08-08. Outcomes are in
+  `design.md`; the two defects it surfaced (the card's frozen width, then the inline surfaces sliding
+  under the inspections widget) were fixed by this change and by
+  `visible-delivery-and-platform-inlay-width` respectively. Maintainer on 2026-08-08: "comment size
+  fitting works".

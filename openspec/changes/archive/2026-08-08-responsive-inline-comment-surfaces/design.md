@@ -297,3 +297,32 @@ maintainer had not chosen when the session ended.
 does *not* re-size the surfaces. That is intended since task 1.3 replaced the 80-editor-column rule
 with a **UI-font-relative** reading measure; editor font size is no longer an input to surface width.
 Only the viewport is. The 7.3 checklist item was written before that decision and is stale.
+
+## Follow-up: how the inspections-widget overlap was resolved
+
+The QA outcome above left an open choice between subtracting the overlay by hand and handing sizing
+to the platform. `visible-delivery-and-platform-inlay-width` did **both**, because the platform route
+alone does not close this. Read from the 2024.2.5 bytecode rather than assumed:
+
+- `ComponentInlaysContainer.doLayout` lays a `FIT_VIEWPORT_WIDTH` component out at
+  `max(minimumSize.width, viewport.width - verticalScrollBar.width)`. Only the scrollbar is
+  subtracted; nothing in that path knows the inspections widget exists.
+- The widget's own collision avoidance is caret-based only: `EditorMarkupModelImpl
+  .doUpdateTrafficLightVisibility` collapses the toolbar to a small icon when the *caret's* XY falls
+  inside its cached bounds. Inlays are invisible to it.
+- So the platform's own review comments (`CodeReviewComponentInlayRenderer`, which composes the same
+  `FIT_VIEWPORT_WIDTH` with an inner width cap) slide under the widget in the same narrow-editor
+  case. The premise recorded earlier — that the GitHub/GitLab plugins do not have this problem — does
+  not hold.
+
+**Option (a) was rejected here for a reason that turned out to be wrong.** The objection was that the
+widget's geometry is unreachable, since `EditorMarkupModelImpl.statusToolbar` and
+`cachedToolbarBounds` are private. Both are private, and it does not matter: the widget is registered
+with the editor's scroll pane through **public** `JBScrollPane.setStatusComponent` /
+`getStatusComponent`. The assessment looked only at the class that owns the widget, never at the one
+it is handed to. No private access and no hardcoded inset is needed, and the fudge constant this
+change deleted did not have to come back.
+
+The resolution is therefore the platform's placement *plus* a reserve for what the widget covers,
+measured from laid-out bounds rather than from the widget's own width (it overhangs the scrollbar,
+which is already outside the viewport). See that change's design D7.
