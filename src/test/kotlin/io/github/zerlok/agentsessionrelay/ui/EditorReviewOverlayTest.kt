@@ -1,5 +1,8 @@
 package io.github.zerlok.agentsessionrelay.ui
 
+import com.intellij.openapi.editor.ComponentInlayAlignment
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.editor.ComponentInlayRenderer
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
@@ -8,7 +11,6 @@ import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
-import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.Subject
@@ -186,20 +188,21 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
     }
 
     /**
-     * A card follows the editor's width while it exists, and stops when it does not (task 2.4): the card
-     * attaches to the editor's [InlineWidthWatcher] when it is built, and its detach rides the *inlay's*
-     * disposal — so a deleted comment leaves nothing registered to revalidate a component that no longer
-     * has an inlay.
+     * The one width decision Relay still makes at the placement site: a card is a component inlay
+     * aligned to the viewport, which is what makes it track a split or a window resize without any
+     * listener of Relay's own. Asserted on the renderer because that alignment is the whole mechanism —
+     * `FIT_CONTENT_WIDTH` would compile, render, and silently stop following the editor.
      */
-    fun `test a card attaches to the width watcher and detaches when its inlay goes`() {
-        val watcher = InlineWidthWatcher.install(myFixture.editor)
-        Disposer.register(testRootDisposable, watcher)
+    fun `test a card is placed as a viewport-aligned component inlay`() {
+        service.addComment(Subject.Line(url, 1), "look here")
 
-        val comment = service.addComment(Subject.Line(url, 1), "look here")
-        assertEquals("a card must follow the editor's width", 1, watcher.surfaceCount)
+        val inlay = myFixture.editor.inlayModel
+            .getBlockElementsInRange(0, myFixture.editor.document.textLength)
+            .single()
+        val renderer = inlay.renderer as ComponentInlayRenderer<*>
 
-        service.removeComment(comment.id)
-        assertEquals("a removed card must leave nothing registered", 0, watcher.surfaceCount)
+        assertEquals(ComponentInlayAlignment.FIT_VIEWPORT_WIDTH, renderer.alignment)
+        assertTrue("the inlay carries the card's row", renderer.component is ReadingWidthRow)
     }
 
     /** The comment currently open in an edit box has no card; on close its card reappears (design D3). */

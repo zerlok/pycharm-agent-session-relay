@@ -1,7 +1,6 @@
 package io.github.zerlok.agentsessionrelay.ui
 
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.components.JBLabel
@@ -149,7 +148,7 @@ class StoredCommentCardTest : BasePlatformTestCase() {
         assertEquals(insets.top, header.y)
         assertEquals(insets.left, body.x)
         assertEquals("header and body share one content width", header.width, body.width)
-        assertEquals(InlineWidth.baseWidthPx(editorEx) - insets.left - insets.right, header.width)
+        assertEquals(InlineWidth.readingMeasurePx() - insets.left - insets.right, header.width)
         assertTrue("body starts below the header", body.y >= header.y + header.height)
         assertTrue("body fits inside the card's bottom inset", body.y + body.height <= card.height - insets.bottom)
     }
@@ -201,44 +200,62 @@ class StoredCommentCardTest : BasePlatformTestCase() {
 
     // -- Width (comment-box-sizing invariants this change must not regress) --
 
-    /** The card still opens pinned to the shared base width and is still capped at the right margin. */
-    fun `test the card opens at the shared base width under the right-margin cap`() {
-        val card = buildCard()
-        val base = InlineWidth.baseWidthPx(editorEx)
+    /** On a viewport wider than the reading measure, the measure is what the card opens at. */
+    fun `test the card opens at the reading measure on a wide viewport`() {
+        val row = buildRow()
+        val card = cardOf(row)
+        row.setSize(InlineWidth.readingMeasurePx() * 3, 200)
+        row.doLayout()
 
-        assertEquals(base, card.preferredSize.width)
-        assertEquals(base, card.maximumSize.width)
-        InlineWidth.rightMarginPx(editorEx)?.let { cap ->
-            assertTrue("base width must not exceed the right-margin cap", base <= cap)
-        }
+        assertEquals(InlineWidth.readingMeasurePx(), card.preferredSize.width)
+        assertEquals("the row lays the card out at what it measured", InlineWidth.readingMeasurePx(), card.width)
     }
 
     /**
-     * The change's whole point (`review-batch` "Card follows the editor when it narrows"): the card's
-     * width is the editor's *current* one, taken from its [InlineWidthWatcher], not a number frozen when
-     * the card was built. So narrowing the editor narrows the card — and because the body is measured at
-     * that same number, it re-wraps and the card grows *taller* instead of having its text clipped.
+     * The deliberate behavior change: the editor's configured right margin is no longer a cap. A guide
+     * column far narrower than the reading measure used to shrink the card to it; the card is now sized
+     * by the platform's viewport-fitting row and the measure alone (`review-batch` "A narrow right
+     * margin does not narrow the card").
+     */
+    fun `test a narrow right margin does not narrow the card`() {
+        editorEx.settings.setRightMargin(1)
+
+        val row = buildRow()
+        val card = cardOf(row)
+        row.setSize(InlineWidth.readingMeasurePx() * 3, 200)
+        row.doLayout()
+
+        assertEquals(InlineWidth.readingMeasurePx(), card.width)
+    }
+
+    /**
+     * `review-batch` "Card follows the editor when it narrows": the card's width is whatever its row
+     * currently allots, not a number frozen when the card was built. So narrowing the viewport narrows
+     * the card — and because the body is measured at that same number, it re-wraps and the card grows
+     * *taller* instead of having its text clipped.
      *
      * The one-width invariant is asserted in the same pass (design D1): after the narrowing, the header
      * and the body are laid out at one content width, the one `getPreferredSize` measured at.
      */
-    fun `test the card follows the editor's width, re-wrapping its body rather than clipping it`() {
-        val watcher = InlineWidthWatcher.install(editorEx)
-        Disposer.register(testRootDisposable, watcher)
+    fun `test the card follows the row's width, re-wrapping its body rather than clipping it`() {
         // Long enough that halving the card's width must cost it visual lines whatever the metrics are.
-        val card = buildCard("a body long enough that it must re-wrap onto more visual lines once the card is narrowed, ".repeat(4))
+        val row = buildRow("a body long enough that it must re-wrap onto more visual lines once the card is narrowed, ".repeat(4))
+        val card = cardOf(row)
+        row.setSize(InlineWidth.readingMeasurePx() * 3, 400)
+        row.doLayout()
         val wide = card.preferredSize
 
-        // A real input of the width rule changes, exactly as a split or a window resize changes another.
-        editorEx.settings.setRightMargin(1)
-        watcher.refresh()
+        // What a split or a window resize does: the platform re-lays the row out at a narrower viewport.
+        val narrow = InlineWidth.readingMeasurePx() / 2
+        row.setSize(narrow, 400)
+        row.doLayout()
+        // The row sizes the card; the card positions its own children (offscreen there is no peer, so
+        // nothing descends into it on its own).
+        card.doLayout()
 
-        assertTrue("the card must have followed the editor", card.preferredSize.width < wide.width)
-        assertEquals("...to the watcher's width", watcher.width, card.preferredSize.width)
+        assertEquals("the card must have followed the row", narrow, card.preferredSize.width)
         assertTrue("the narrowed body must re-wrap and grow the card taller", card.preferredSize.height > wide.height)
 
-        card.setSize(card.preferredSize)
-        card.doLayout()
         val contentWidth = card.preferredSize.width - card.insets.left - card.insets.right
         assertEquals("the body is laid out at the width it was measured at", contentWidth, bodyOf(card).width)
         assertEquals("...and so is the header", contentWidth, headerOf(card).width)
@@ -246,18 +263,20 @@ class StoredCommentCardTest : BasePlatformTestCase() {
 
     // -- Helpers --
 
-    /** Builds a card over the fixture editor and returns the card panel itself (inside the width cap). */
-    private fun buildCard(body: String = "look here"): JPanel {
-        val root = StoredCommentCard.build(
+    /** Builds a card and returns the card panel itself (inside its [ReadingWidthRow]). */
+    private fun buildCard(body: String = "look here"): JPanel = cardOf(buildRow(body))
+
+    /** The row [StoredCommentCard.build] returns — what the inlay is given, and what caps the card. */
+    private fun buildRow(body: String = "look here"): ReadingWidthRow =
+        StoredCommentCard.build(
             editorEx,
             body,
             onEdit = {},
             onDelete = {},
             onHover = { hovers += it },
-        )
-        // The returned component is InlineWidth.pinLeading's wrapper; the card is the body area's parent.
-        return bodyOf(root).parent as JPanel
-    }
+        ) as ReadingWidthRow
+
+    private fun cardOf(row: ReadingWidthRow): JPanel = bodyOf(row).parent as JPanel
 
     private fun bodyOf(root: Container): JBTextArea =
         findComponent(root, JBTextArea::class.java) ?: error("no body area")

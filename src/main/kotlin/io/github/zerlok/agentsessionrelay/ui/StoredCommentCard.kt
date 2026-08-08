@@ -37,11 +37,11 @@ import javax.swing.JPanel
  *   parallel blue lines a few pixels apart read as a stripey margin, not as one object. It is also the
  *   fill the authoring box wears ([CommentDraft]), so a card and the box that edits it are the same
  *   object in two states.
- * - **Live width.** The card measures and lays out at [InlineWidth.currentWidthPx] — the width the
- *   editor has *now*, pushed down from its [InlineWidthWatcher] — and is pinned to the leading edge of
- *   its full-width inlay row by [InlineWidth.pinLeading], matching the authoring box. The watcher
- *   revalidates the card when that number changes, so narrowing the editor re-wraps the body and keeps
- *   the header's trailing icons on screen instead of laying them out past the viewport's edge.
+ * - **Live width.** The card measures and lays out at the width its [ReadingWidthRow] gives it — the
+ *   editor's viewport width, capped at the reading measure — matching the authoring box. The platform
+ *   re-lays that row out whenever the visible area changes, so narrowing the editor re-wraps the body
+ *   and keeps the header's trailing icons on screen instead of laying them out past the viewport's
+ *   edge, with no width listener of Relay's own.
  * - **Reserved header.** The Edit/Delete actions are still revealed only on hover, but they now live
  *   *inside* the always-present header row, whose height is a constant captured at build time. That
  *   constant — not the old floating top-right overlay — is what keeps the block inlay's height
@@ -69,6 +69,9 @@ object StoredCommentCard {
         onDelete: () -> Unit,
         onHover: (Boolean) -> Unit,
     ): JComponent {
+        // Built first: the card measures its wrapping body at the width this row will allot it, so the
+        // row has to exist before the card that asks it.
+        val row = ReadingWidthRow(editor)
         // The UI-surface fill shared by the card and its (opaque) header, so the header can't show as a
         // seam across the card's top — and shared with the authoring box, so Edit doesn't change the
         // object's appearance. Distinct from editor.colorsScheme.defaultBackground; that is the point.
@@ -152,26 +155,20 @@ object StoredCommentCard {
             add(deleteButton)
         }
 
-        // Content width the body is measured AND laid out at — a fixed function of the width the EDITOR
-        // currently has, never of the card's own (possibly stretched) width. Keeping both sides on this
-        // one value is what stops the layout churn: getPreferredSize's guarded setSize settles to a
+        // Content width the body is measured AND laid out at — a fixed function of the width the ROW
+        // allots the card, never of the card's own (possibly stretched) width. Keeping both sides on
+        // this one value is what stops the layout churn: getPreferredSize's guarded setSize settles to a
         // no-op instead of fighting a doLayout that sized the body to a different width every pass (the
-        // feedback that pegged the CPU). The number is now live rather than captured at build time, but
-        // it is still an input pushed *down* from the editor — no measure path reads the card's own
-        // width, so the cycle still has no edge to close (design D1).
+        // feedback that pegged the CPU). The number comes from [ReadingWidthRow], which reads the row's
+        // own width — imposed by the platform from the viewport — so it is still an input pushed *down*
+        // and no measure path reads the card's width (design D1).
         // Every horizontal offset the card has rides its *border*, so it reaches both sides through
         // `insets` here and nowhere else — no second offset exists to keep in sync.
         val contentWidth = { insets: java.awt.Insets ->
-            (InlineWidth.currentWidthPx(editor) - insets.left - insets.right).coerceAtLeast(1)
+            (row.contentWidthPx() - insets.left - insets.right).coerceAtLeast(1)
         }
 
         val card = object : JPanel() {
-            // Pin the outer width to the editor's current width so the pinLeading BoxLayout wrapper
-            // can't stretch the card past it. This both keeps the card no wider than the editor has room
-            // for — so the header's trailing icons stay on screen — and makes the card's actual width
-            // equal the width the body is measured at.
-            override fun getMaximumSize(): Dimension = Dimension(InlineWidth.currentWidthPx(editor), Int.MAX_VALUE)
-
             override fun getPreferredSize(): Dimension {
                 val insets = insets
                 val cw = contentWidth(insets)
@@ -255,21 +252,11 @@ object StoredCommentCard {
         editButton.addMouseListener(hover)
         deleteButton.addMouseListener(hover)
 
-        // Pin the card to the leading edge of its full-width inlay row (comment-box-sizing), same as the
-        // authoring box; the cap itself is the card's own maximum size above.
-        val root = InlineWidth.pinLeading(card)
-
-        // Follow the editor's width for as long as this card exists (design D3): re-size in place and
-        // revalidate — never dispose and re-add the inlay. `revalidate()` is the whole mechanism: it
-        // schedules the layout pass that reaches `EditorEmbeddedComponentManager$MyRenderer` →
-        // `synchronizeBoundsWithInlay`, which re-reads the preferred size and calls `Inlay.update()`
-        // itself (comment-box-editing-fidelity D2-R). The matching detach rides the inlay's disposal in
-        // [EditorReviewOverlay.addCard] — the inlay is what owns this component's lifetime.
-        InlineWidthWatcher.of(editor)?.attach(root) {
-            root.revalidate()
-            root.repaint()
-        }
-        return root
+        // The row the platform stretches to the viewport and this card is capped inside. Following the
+        // editor now needs nothing further: a split or a window resize re-lays the row out, which
+        // re-measures the card at the new width and re-wraps its body.
+        row.setContent(card)
+        return row
     }
 
     private fun iconButton(tooltip: String, icon: Icon, onClick: () -> Unit): InplaceButton =

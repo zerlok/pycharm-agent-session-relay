@@ -1,140 +1,68 @@
 package io.github.zerlok.agentsessionrelay.ui
 
-import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.ex.util.EditorUtil
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
-import javax.swing.Box
-import javax.swing.BoxLayout
-import javax.swing.JComponent
-import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.SwingUtilities
 
 /**
- * The width rule shared by the two inline review surfaces — the authoring box ([CommentDraft]) and the
- * read-only card ([StoredCommentCard]). Both are `fullWidth = true`
- * [com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager] block inlays that would otherwise
- * stretch edge-to-edge and become unreadable on a wide monitor, so both cap their *inner* panel here
- * and cap identically.
+ * The one width number the plugin still owns: the comfortable reading measure both inline review
+ * surfaces — the authoring box ([CommentDraft]) and the read-only card ([StoredCommentCard]) — are
+ * capped at, so neither becomes an unreadable edge-to-edge stripe on a wide monitor.
  *
- * The rule is `min(available, readingMeasure, rightMargin when configured)` (design D4), and the whole
- * point of `responsive-inline-comment-surfaces` is **where a surface reads it from**. Width is an input
- * that flows *down* from the editor; height stays an output of content, and no measure path may read
- * the surface's own width (design D1 — that read is what once pegged the CPU with a layout feedback
- * loop). So:
+ * Everything else about width belongs to the platform now. The surfaces are placed with
+ * `ComponentInlayAlignment.FIT_VIEWPORT_WIDTH`, which lays their row out at the editor's viewport
+ * width less its vertical scrollbar and re-lays it out on every visible-area and content change; the
+ * cap and the floating-widget reserve ([overlayInsetPx]) are applied inside that row by
+ * [ReadingWidthRow]. The editor-geometry arithmetic that used to
+ * live here — the viewport read, the right-margin cap, the column conversion — and the
+ * `InlineWidthWatcher` that pushed re-measures are all gone with it, because they were a
+ * reimplementation of that.
  *
- * - [currentWidthPx] is what a surface measures at. It answers from the editor's [InlineWidthWatcher]
- *   when one is installed, so a resize changes the number every surface on that editor sees at once.
- * - [baseWidthPx] computes the same rule directly from the editor. It is both what the watcher
- *   recomputes on each resize and the fallback for an editor that has no watcher (one
- *   [EditorReviewOverlayService] never saw, or a test fixture) — today's behaviour minus the staleness.
+ * The right margin is deliberately **not** a cap any more: the platform's rule has no such term, the
+ * reading measure is UI-font-relative where a margin is editor-column-relative, and keeping it would
+ * have meant keeping the hand-derived path this replaced.
  */
 object InlineWidth {
 
-    // Floor for the right-margin cap (unscaled dp). A very narrow right-margin column (e.g. an
-    // 8-column guide) must never shrink a box below its own chrome — the authoring box's "Cancel" +
-    // "Comment" button row — so that cap is clamped up to this. The exact value is a visual taste-call:
-    // comfortably wider than that two-button row so the buttons never clip. Deliberately NOT applied to
-    // the final width: when the *editor* is genuinely this narrow, a surface wider than the viewport is
-    // the reported defect (icons off screen), not a fix for it.
-    private const val MIN_CAP_DP = 320
-
-    // The reading measure (design D4), in UI-font-size units rather than editor columns: a body
-    // rendered in the proportional UI font ([RelayStyle.bodyFont]) makes a monospace column count the
-    // wrong ruler. These are the platform's own review-comment numbers — 42 characters at the default
-    // system font size (`CodeReviewChatItemUIUtil.TEXT_CONTENT_WIDTH`) plus its 52dp chrome allowance —
-    // which land within a few dozen px of the 80 editor columns they replace.
+    // The reading measure, in UI-font-size units rather than editor columns: a body rendered in the
+    // proportional UI font ([RelayStyle.bodyFont]) makes a monospace column count the wrong ruler.
+    // These are the platform's own review-comment numbers — 42 characters at the default system font
+    // size (`CodeReviewChatItemUIUtil.TEXT_CONTENT_WIDTH`) plus its 52dp chrome allowance.
     private const val READING_MEASURE_CHARS = 42
     private const val READING_MEASURE_CHROME_DP = 52
 
-    /**
-     * The width a surface on [editor] must measure and lay out at **right now**: the watcher's live
-     * value when [editor] has one, else the rule computed directly ([baseWidthPx]).
-     *
-     * Surfaces *pull* this on every measure pass rather than caching a copy pushed at build time, so a
-     * surface can never hold a width the editor no longer has. It is still an input — computed from the
-     * viewport, which no surface influences — so D1's invariant holds: `getPreferredSize` and `doLayout`
-     * read one number per pass, and that number is never the surface's own width.
-     */
-    fun currentWidthPx(editor: Editor): Int = InlineWidthWatcher.of(editor)?.width ?: baseWidthPx(editor)
-
-    /**
-     * The width rule computed straight from [editor]: `min(available, readingMeasure, rightMargin)`.
-     * [InlineWidthWatcher] recomputes exactly this on every editor resize, and [currentWidthPx] falls
-     * back to it for an editor with no watcher.
-     */
-    fun baseWidthPx(editor: Editor): Int =
-        resolve(availableWidthPx(editor), rightMarginPx(editor), readingMeasurePx())
-
-    /**
-     * The rule itself, over plain numbers so it can be exercised without an editor. A `null` cap means
-     * "not known / not configured" and simply does not apply — in particular an unknown [available]
-     * (an editor that is not laid out yet) must leave the surface at its reading measure rather than
-     * collapsing it to nothing.
-     */
-    internal fun resolve(available: Int?, rightMargin: Int?, readingMeasure: Int): Int {
-        var width = readingMeasure
-        if (rightMargin != null) width = minOf(width, rightMargin)
-        if (available != null) width = minOf(width, available)
-        return width.coerceAtLeast(1)
-    }
-
-    /** The comfortable reading measure both surfaces are capped at when nothing narrower applies. */
+    /** The comfortable reading measure both surfaces are capped at. */
     fun readingMeasurePx(): Int =
         JBUI.scale(Math.round(JBUIScale.DEF_SYSTEM_FONT_SIZE * READING_MEASURE_CHARS) + READING_MEASURE_CHROME_DP)
 
     /**
-     * The editor's currently available content width, or `null` when the editor is not laid out yet
-     * (a zero-area viewport), in which case no such cap applies.
+     * How many pixels of the viewport's trailing edge are covered by the editor's **inspections
+     * widget** — the floating "no problems found" toolbar at the top right.
      *
-     * Source: [com.intellij.openapi.editor.ScrollingModel.getVisibleArea], resolving design Open
-     * Question 5. It is the scroll pane's viewport rect, so the gutter (the scroll pane's row header)
-     * and the vertical scrollbar are already outside it — subtracting them again, as
-     * `EditorTextWidthWatcher` does from the raw viewport component, would under-size the surface here.
-     * It is also the same quantity the platform sizes a `fullWidth` block inlay's row from, so a
-     * surface capped at it is capped at exactly the row it is laid out in.
-     */
-    fun availableWidthPx(editor: Editor): Int? = editor.scrollingModel.visibleArea.width.takeIf { it > 0 }
-
-    /**
-     * The editor's effective right margin in pixels — the vertical guide column resolved per-file via
-     * [com.intellij.openapi.editor.EditorSettings.getRightMargin] for [Editor.getProject], converted
-     * from columns through the editor's plain space width ([EditorUtil.getPlainSpaceWidth]) and clamped
-     * up to [MIN_CAP_DP] so a narrow guide never shrinks a surface below its own buttons. `null` when no
-     * margin is configured (guide disabled or a non-positive column), in which case it does not cap.
-     */
-    fun rightMarginPx(editor: Editor): Int? {
-        val columns = editor.settings.getRightMargin(editor.project)
-        return if (columns > 0) maxOf(columnsPx(editor, columns), JBUI.scale(MIN_CAP_DP)) else null
-    }
-
-    /**
-     * Pixel width of [columns] editor columns, via the editor's plain space width
-     * ([EditorUtil.getPlainSpaceWidth]) — the column→pixel conversion [rightMarginPx] caps with.
-     */
-    fun columnsPx(editor: Editor, columns: Int): Int = columns * EditorUtil.getPlainSpaceWidth(editor)
-
-    /**
-     * Wraps [content] so it renders pinned to the leading (left) edge of the full-width inlay row,
-     * while its height stays fully content-driven (a typed body or a long comment still grows the box
-     * vertically).
+     * That widget is handed to the scroll pane via [JBScrollPane.setStatusComponent] and floats *over*
+     * the content area: it is not in the viewport's layout, so `FIT_VIEWPORT_WIDTH` (which subtracts
+     * only the vertical scrollbar) lays a surface out underneath it and the card's trailing Edit and
+     * Delete icons end up unreachable. Reserving this much keeps a surface clear of it.
      *
-     * We keep the inlay `fullWidth = true` and constrain the *inner* panel: a [BoxLayout] row with a
-     * trailing horizontal glue absorbs every pixel beyond [content]'s own maximum width, so the block
-     * still lays out as a full-width row but the visible surface occupies only the leftmost
-     * [currentWidthPx] px. The cap itself lives in the surface's own `getMaximumSize` — that is what
-     * makes it track the editor rather than being frozen here at build time.
+     * Measured from the components' **actual laid-out bounds** rather than derived from the widget's
+     * width: the widget partly overhangs the scrollbar, which is already outside the viewport, so its
+     * width is not what it costs the content area. Taking the distance from the widget's leading edge
+     * to the viewport's trailing edge answers the only question that matters — how much of the
+     * viewport it covers — without depending on how the scroll pane positions it.
      *
-     * Whether this reliably caps the *visible* width across themes/zoom is still the design's open
-     * question to confirm in a running IDE; the documented fallback is the platform's purpose-built
-     * `Editor.addComponentInlay(offset, InlayProperties(), component, ComponentInlayAlignment
-     * .FIT_VIEWPORT_WIDTH)`, which would replace most of this object.
+     * Zero when the widget is absent, hidden, or entirely over the scrollbar. The reserve is
+     * unconditional rather than applied only to rows the widget currently overlaps: the widget is
+     * fixed to the top of the *viewport* while a surface sits in the *document*, so which rows it
+     * covers changes on every scroll, and sizing on that would re-wrap comments while the user
+     * scrolls past them.
      */
-    fun pinLeading(content: JComponent): JComponent = JPanel().apply {
-        isOpaque = false
-        layout = BoxLayout(this, BoxLayout.X_AXIS)
-        add(content)
-        // The glue takes all width past the surface's maximum, keeping `content` clamped to it and
-        // pinned to the left — the reading-width column, not an edge-to-edge stripe.
-        add(Box.createHorizontalGlue())
+    fun overlayInsetPx(scrollPane: JScrollPane?): Int {
+        val status = (scrollPane as? JBScrollPane)?.statusComponent?.takeIf { it.isVisible && it.width > 0 } ?: return 0
+        val parent = status.parent ?: return 0
+        val viewport = scrollPane.viewport ?: return 0
+        val statusBounds = SwingUtilities.convertRectangle(parent, status.bounds, scrollPane)
+        return (viewport.x + viewport.width - statusBounds.x).coerceAtLeast(0)
     }
 }

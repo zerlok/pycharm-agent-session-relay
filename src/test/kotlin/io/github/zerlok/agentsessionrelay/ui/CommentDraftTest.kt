@@ -354,20 +354,20 @@ class CommentDraftTest : BasePlatformTestCase() {
     private fun boxInlay(): Inlay<*> = blockInlays().single()
 
     /**
-     * The panel the draft revalidates: the single component the renderer wraps, i.e. exactly what
-     * `showBox` handed to `addComponent` and retained as its `boxPanel`.
+     * The panel the draft revalidates: the component the renderer carries, i.e. exactly what `showBox`
+     * handed to `addComponentInlay` and retained as its `boxPanel`.
      */
-    private fun measuredPanel(): JComponent = (boxInlay().renderer as Container).components.single() as JComponent
+    private fun measuredPanel(): JComponent = boxInlay().surfaceComponent
 
     /**
      * The box's content panel — the first data provider below the inlay's renderer. The body field is
      * a provider too, but it sits under the content panel, so a top-down search finds the panel first.
      */
     private fun contentPanel(): JComponent =
-        find(boxInlay().renderer as Component) { it is UiDataProvider && it !is EditorTextField } as JComponent
+        find(boxInlay().surfaceComponent) { it is UiDataProvider && it !is EditorTextField } as JComponent
 
     private fun bodyField(): EditorTextField =
-        find(boxInlay().renderer as Component) { it is EditorTextField } as EditorTextField
+        find(boxInlay().surfaceComponent) { it is EditorTextField } as EditorTextField
 
     /**
      * The box's primary action, grabbed while the box is still whole so a later document change cannot
@@ -375,7 +375,7 @@ class CommentDraftTest : BasePlatformTestCase() {
      * rather than a seam added for them.
      */
     private fun commentButton(): JButton =
-        find(boxInlay().renderer as Component) { it is JButton && it.text == "Comment" } as JButton
+        find(boxInlay().surfaceComponent) { it is JButton && it.text == "Comment" } as JButton
 
     /**
      * Forces the body's inner editor into existence and returns it. [EditorTextField] builds it when
@@ -403,7 +403,7 @@ class CommentDraftTest : BasePlatformTestCase() {
         // only deferred work left to observe afterwards is the draft's own re-measure.
         PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
         val panel = measuredPanel()
-        (boxInlay().renderer as JComponent).addNotify()
+        boxInlay().surfaceComponent.addNotify()
         shownBodies += bodyField()
         panel.validate()
         return panel

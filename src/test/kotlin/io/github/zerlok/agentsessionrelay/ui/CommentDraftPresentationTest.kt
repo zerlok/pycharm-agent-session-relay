@@ -229,13 +229,13 @@ class CommentDraftPresentationTest : BasePlatformTestCase() {
     /** The draft's box inlay: the only block inlay carrying a body field in this fixture. */
     private fun boxInlay(): Inlay<*> = myFixture.editor.inlayModel
         .getBlockElementsInRange(0, myFixture.editor.document.textLength)
-        .single { inlay -> (inlay.renderer as? Component)?.let { findOrNull(it) { c -> c is EditorTextField } } != null }
+        .single { inlay -> findOrNull(inlay.surfaceComponent) { c -> c is EditorTextField } != null }
 
     /** The box's content panel — the body field's parent, i.e. the panel `buildPanel` fills and frames. */
     private fun boxPanel(): JPanel = bodyField().parent as JPanel
 
     private fun bodyField(): EditorTextField =
-        find(boxInlay().renderer as Component) { it is EditorTextField } as EditorTextField
+        find(boxInlay().surfaceComponent) { it is EditorTextField } as EditorTextField
 
     private fun buttons(): List<JButton> = boxPanel().let { panel ->
         val found = mutableListOf<JButton>()

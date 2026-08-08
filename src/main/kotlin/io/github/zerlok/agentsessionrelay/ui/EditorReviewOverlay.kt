@@ -4,8 +4,10 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.editor.ComponentInlayAlignment
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
+import com.intellij.openapi.editor.InlayProperties
+import com.intellij.openapi.editor.addComponentInlay
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -111,9 +113,9 @@ class EditorReviewOverlay(
     }
 
     /**
-     * Places [comment]'s read-only card as a full-width block inlay under its range's bottom line —
-     * the same [EditorEmbeddedComponentManager] placement the authoring box uses, so card and box
-     * anchor identically. Card **Edit** re-opens the box seeded (via [CommentDraftController], passing
+     * Places [comment]'s read-only card as a viewport-width block inlay under its range's bottom line —
+     * the same [Editor.addComponentInlay] placement the authoring box uses, so card and box anchor and
+     * size identically. Card **Edit** re-opens the box seeded (via [CommentDraftController], passing
      * the comment at its *live* range so the box opens where the marker actually is); **Delete** routes
      * through the store so every surface reconciles off the resulting event.
      *
@@ -139,26 +141,20 @@ class EditorReviewOverlay(
             onHover = { hovered -> onCardHover(comment.id, hovered) },
         )
 
-        val properties = EditorEmbeddedComponentManager.Properties(
-            EditorEmbeddedComponentManager.ResizePolicy.none(),
-            null,
-            /* relatesToPrecedingText = */ true,
-            /* showAbove = */ false,
-            /* showWhenFolded = */ true,
-            /* fullWidth = */ true,
-            /* priority = */ 0,
-            /* offset = */ document.getLineEndOffset(endLine),
-        )
-        // The card attached itself to the editor's width watcher at build time so it follows the editor
-        // (responsive-inline-comment-surfaces D2/D3); the detach is registered here because the *inlay* is
-        // what owns the card's lifetime — a registration outliving it would revalidate a dead component.
-        val watcher = InlineWidthWatcher.of(editorEx)
-        val inlay = EditorEmbeddedComponentManager.getInstance().addComponent(editorEx, panel, properties)
-        if (inlay == null) {
-            watcher?.detach(panel)
-            return
-        }
-        watcher?.let { w -> Disposer.register(inlay, Disposable { w.detach(panel) }) }
+        // `fullWidth` has no counterpart here: the alignment IS that concept, and FIT_VIEWPORT_WIDTH
+        // additionally re-lays the row out on every visible-area change — the tracking Relay used to
+        // run its own listener for.
+        val properties = InlayProperties()
+            .relatesToPrecedingText(true)
+            .showAbove(false)
+            .showWhenFolded(true)
+            .priority(0)
+        val inlay = editor.addComponentInlay(
+            document.getLineEndOffset(endLine),
+            properties,
+            panel,
+            ComponentInlayAlignment.FIT_VIEWPORT_WIDTH,
+        ) ?: return
         cards[comment.id] = inlay
         cardModels[comment.id] = comment
     }
