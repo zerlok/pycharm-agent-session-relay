@@ -18,38 +18,34 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * The always-expanded, read-only inline card for a stored comment (design D2), rendered as a
- * full-width block inlay under the commented range by [EditorReviewOverlay]. Purely a view — both
- * buttons route through the store/controller, never mutating a surface directly.
+ * The always-expanded, read-only inline card for a stored comment, rendered as a viewport-width
+ * block inlay under the commented range by [EditorReviewOverlay]. Purely a view — both buttons
+ * route through the store or the controller, never mutating a surface directly.
  *
  * The card is shaped as **one message**: an author header row above the comment body, inside a 1px
  * outline that owns the whole card. That is deliberate — a future discussion thread stacks N such
- * messages inside the same frame, each keeping its own header, without re-cutting the card's geometry.
- * Nothing about the message shape is stored: the author label is a view-level constant and the domain
- * record is untouched.
+ * messages inside the same frame, each keeping its own header, without re-cutting the card's
+ * geometry. Nothing about the message shape is stored: the author label is a view-level constant.
  *
  * Three shape decisions are load-bearing:
  *
- * - **Elevation.** The card is filled with [RelayStyle.surface], not the editor's own text background,
+ * - **Elevation.** The card is filled with [RelayStyle.surface], not the editor's text background,
  *   so it reads as a control floating over code rather than as more code. That fill plus the outline
- *   are the card's whole visual identity: it carries **no accent edge of its own** (design R1). The
- *   accent marks a commented range in exactly one place — the gutter bar over its lines — because two
- *   parallel blue lines a few pixels apart read as a stripey margin, not as one object. It is also the
- *   fill the authoring box wears ([CommentDraft]), so a card and the box that edits it are the same
- *   object in two states.
+ *   are its whole visual identity: it carries **no accent edge of its own**, because the accent marks
+ *   a commented range in exactly one place — the gutter bar over its lines — and two parallel blue
+ *   lines a few pixels apart read as a stripey margin rather than as one object. The fill is also the
+ *   authoring box's ([CommentDraft]), so a card and the box that edits it are one object in two states.
  * - **Live width.** The card measures and lays out at the width its [ReadingWidthRow] gives it — the
- *   editor's viewport width, capped at the reading measure — matching the authoring box. The platform
- *   re-lays that row out whenever the visible area changes, so narrowing the editor re-wraps the body
- *   and keeps the header's trailing icons on screen instead of laying them out past the viewport's
- *   edge, with no width listener of Relay's own.
- * - **Reserved header.** The Edit/Delete actions are still revealed only on hover, but they now live
- *   *inside* the always-present header row, whose height is a constant captured at build time. That
- *   constant — not the old floating top-right overlay — is what keeps the block inlay's height
- *   identical at rest and on hover, so revealing the actions never reflows the code below.
+ *   editor's viewport width, capped at the reading measure — matching the box. The platform re-lays
+ *   that row out whenever the visible area changes, so narrowing the editor re-wraps the body and
+ *   keeps the header's trailing icons on screen, with no width listener of Relay's own.
+ * - **Reserved header.** The Edit/Delete actions are revealed only on hover, but they live *inside*
+ *   the always-present header row, whose height is a constant captured at build time. That constant
+ *   is what keeps the inlay's height identical at rest and on hover, so revealing the actions never
+ *   reflows the code below.
  *
- * Like [CommentDraft]'s box panel, the card swallows its own mouse events so a click on its chrome
- * doesn't retarget to the editor underneath and start a text selection (design "card buttons stealing
- * focus" risk).
+ * Like [CommentDraft]'s box panel, the card swallows its own mouse events, so a click on its chrome
+ * does not retarget to the editor underneath and start a text selection.
  */
 object StoredCommentCard {
 
@@ -58,8 +54,8 @@ object StoredCommentCard {
     private const val ICON_GAP_DP = 4
 
     // The header's author label. A view-level constant, NOT a domain field: `ReviewComment` has no
-    // author, and this change deliberately adds none (design "Thread state is deliberately NOT
-    // modeled"). It is the seam a future thread change replaces with a real per-message author.
+    // author, and modeling one is a thread concern that does not exist yet. This is the seam a future
+    // thread change replaces with a real per-message author.
     private const val AUTHOR = "You"
 
     fun build(
@@ -84,9 +80,9 @@ object StoredCommentCard {
             lineWrap = true
             wrapStyleWord = true
             border = JBUI.Borders.empty()
-            // Set explicitly, so the body stops inheriting `TextArea.font` — which the platform's LaF
-            // initialises to *Monospaced* while an EditorTextField (the box's body) carries the UI font,
-            // making one comment change typeface the moment it was opened for editing (design D6).
+            // Set explicitly, so the body does not inherit `TextArea.font` — which the platform's LaF
+            // initialises to *Monospaced* while an EditorTextField (the box's body) carries the UI
+            // font, making a comment change typeface the moment it is opened for editing.
             font = RelayStyle.bodyFont()
             // A read-only area still shows a text caret cursor by default; use the normal arrow.
             cursor = Cursor.getDefaultCursor()
@@ -123,11 +119,11 @@ object StoredCommentCard {
         // doLayout (no layout manager is consulted) so hiding a button can never re-flow the row.
         val header = object : JPanel() {
             override fun doLayout() {
-                // The icons are laid out FIRST, at their full width (design D5): they are the card's only
-                // actions, while the label is a fixed presentation constant carrying no information, so
-                // when the row is too narrow for both the label is what yields. Right-to-left from the
-                // row's trailing edge; bounds are set whether or not the button is currently visible, so
-                // a reveal is a repaint rather than a layout.
+                // The icons are laid out FIRST, at their full width: they are the card's only actions,
+                // while the label is a fixed constant carrying no information, so when the row is too
+                // narrow for both the label is what yields. Right-to-left from the row's trailing
+                // edge; bounds are set whether or not the button is visible, so a reveal is a repaint
+                // rather than a layout.
                 var right = width
                 for (button in listOf(deleteButton, editButton)) {
                     val size = button.preferredSize
@@ -157,13 +153,12 @@ object StoredCommentCard {
 
         // Content width the body is measured AND laid out at — a fixed function of the width the ROW
         // allots the card, never of the card's own (possibly stretched) width. Keeping both sides on
-        // this one value is what stops the layout churn: getPreferredSize's guarded setSize settles to a
-        // no-op instead of fighting a doLayout that sized the body to a different width every pass (the
-        // feedback that pegged the CPU). The number comes from [ReadingWidthRow], which reads the row's
-        // own width — imposed by the platform from the viewport — so it is still an input pushed *down*
-        // and no measure path reads the card's width (design D1).
+        // this one value is what stops layout churn: getPreferredSize's guarded setSize settles to a
+        // no-op instead of fighting a doLayout that sized the body differently every pass, a feedback
+        // loop that pegs the CPU. The number comes from ReadingWidthRow, which reads the row's own
+        // width — imposed by the platform from the viewport — so it stays an input pushed *down*.
         // Every horizontal offset the card has rides its *border*, so it reaches both sides through
-        // `insets` here and nowhere else — no second offset exists to keep in sync.
+        // `insets` here and nowhere else; no second offset exists to keep in sync.
         val contentWidth = { insets: java.awt.Insets ->
             (row.contentWidthPx() - insets.left - insets.right).coerceAtLeast(1)
         }
@@ -201,10 +196,10 @@ object StoredCommentCard {
         }.apply {
             isOpaque = true
             background = cardBackground
-            // Closes the card on every edge at the theme's own frame weight, then pads the content. No
-            // accent line (design R1) — so the insets stay symmetric and `contentWidth` below loses the
-            // same amount on both sides. Whatever the border becomes, it must stay *in the border*: that
-            // is the single place both getPreferredSize and doLayout read a horizontal offset from.
+            // Closes the card on every edge at the theme's own frame weight, then pads the content.
+            // No accent line, so the insets stay symmetric and `contentWidth` loses the same amount
+            // on both sides. Whatever the border becomes, it must stay *in the border*: that is the
+            // single place both getPreferredSize and doLayout read a horizontal offset from.
             border = JBUI.Borders.compound(
                 JBUI.Borders.customLine(JBColor.border(), 1),
                 JBUI.Borders.empty(8, 12),
@@ -226,15 +221,15 @@ object StoredCommentCard {
         val hover = object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) {
                 setActionsVisible(card, editButton, deleteButton, true)
-                // Reveal this comment's range in the editor while its card is hovered (design D4). The
-                // overlay owns the single transient highlight; the card only reports enter/exit.
+                // Reveal this comment's range in the editor while its card is hovered. The overlay
+                // owns the single transient highlight; the card only reports enter/exit.
                 onHover(true)
             }
 
             override fun mouseExited(e: MouseEvent) {
-                // Same proven exit test as before: only a *true* leave (pointer no longer over the card
-                // or any descendant) hides the actions and clears the range highlight, so crossing into
-                // a child button never flickers either off.
+                // Only a *true* leave — the pointer no longer over the card or any descendant — hides
+                // the actions and clears the range highlight, so crossing into a child button never
+                // flickers either off.
                 if (card.getMousePosition(true) == null) {
                     setActionsVisible(card, editButton, deleteButton, false)
                     onHover(false)
@@ -252,8 +247,8 @@ object StoredCommentCard {
         editButton.addMouseListener(hover)
         deleteButton.addMouseListener(hover)
 
-        // The row the platform stretches to the viewport and this card is capped inside. Following the
-        // editor now needs nothing further: a split or a window resize re-lays the row out, which
+        // The row the platform stretches to the viewport and this card is capped inside. Following
+        // the editor needs nothing further: a split or a window resize re-lays the row out, which
         // re-measures the card at the new width and re-wraps its body.
         row.setContent(card)
         return row

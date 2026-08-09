@@ -14,9 +14,9 @@ carries **you → agent** — relayed into the specific session that made the ch
 
 ![Relay: hover a line, comment, batch, and submit as REVIEW.md](docs/images/demo.gif)
 
-> **Status: MVP implemented.** The full annotate → batch → export → deliver loop works (see
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design). Persistence across restarts, typed
-> terminal relay, and multi-session/worktree support remain deferred follow-ons.
+> **Status: MVP implemented.** The full annotate → batch → export → deliver loop works, and the
+> batch survives restarts. Typed terminal relay and multi-session/worktree support remain deferred
+> follow-ons — see [project context](openspec/project.md) for the current picture.
 
 ## Install
 
@@ -52,39 +52,20 @@ The export uses Claude Code's native reference syntax (`@path/file.py#L10-15` + 
 body), so the agent resolves anchors directly — no in-file comment markers that would
 collide with the agent's own edits under bidirectional sync.
 
-## What Relay is *not*
-
-- It does **not** emulate a terminal — it reuses PyCharm's.
-- It does **not** render diffs — it reuses PyCharm's diff viewer.
-- It does **not** use git as a transport between hosts, and it does **not** manage file sync —
-  it only reads and writes your *local* working tree (including the exported `REVIEW.md`).
-  Carrying files to and from a remote sandbox is the session's own job. (Reading your local
-  working-tree diff for change detection is fine; the constraint is only about cross-host
-  commit/push/pull.)
+Relay does not emulate a terminal, render diffs, or manage file sync — it reuses PyCharm's for the
+first two and reads and writes your *local* working tree only. See
+[Scope](openspec/project.md#scope) for where those boundaries come from.
 
 ## Development
 
-**Language:** Kotlin (IntelliJ Platform Plugin Template, Gradle)
+Kotlin, built with the [IntelliJ Platform Gradle Plugin](https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html)
+against PyCharm Community 2024.2; requires a JDK 21. This is a **spec-driven** repository
+([OpenSpec](https://github.com/Fission-AI/OpenSpec)): every feature starts as a change proposal
+under `openspec/changes/` before any code.
 
-This is a **spec-driven** repository ([OpenSpec](https://github.com/Fission-AI/OpenSpec)):
-every feature starts as a change proposal under `openspec/changes/` before any code. Two
-sources of truth, read both before proposing or implementing:
-
-- **`openspec/changes/`** — product requirements: *what the system is for the user* (capture
-  modes, user flow, per-capability behavior, scope phasing).
-- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — technical design: *how the solution
-  works and why* (domain model, anchor drift, multi-session mechanics, threading, SDK reuse).
-
-### Build & run
-
-The plugin is built with the [IntelliJ Platform Gradle Plugin](https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html);
-the target IDE is **PyCharm Community 2024.2** (`platformType`/`platformVersion` in
-`gradle.properties`). Requires a JDK 21.
-
-```bash
-./gradlew buildPlugin   # produce build/distributions/agent-session-relay-<version>.zip
-./gradlew runIde        # launch a sandbox PyCharm with the plugin pre-installed (fastest dev loop)
-./gradlew verifyPlugin   # run the JetBrains plugin verifier
-```
-
-The first build downloads the target IDE (~1 GB) into the Gradle cache.
+| You want to know | Read |
+|------------------|------|
+| What Relay is for, what is in scope, project status, how to build it | [`openspec/project.md`](openspec/project.md) |
+| What the product must do for the user | `openspec/specs/<capability>/spec.md` |
+| How the code is structured and what rules a change must obey | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| What a UI element is called and which class owns it | [`docs/UI.md`](docs/UI.md) |

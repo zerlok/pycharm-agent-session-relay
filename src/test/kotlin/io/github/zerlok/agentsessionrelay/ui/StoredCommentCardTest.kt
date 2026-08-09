@@ -58,7 +58,7 @@ class StoredCommentCardTest : BasePlatformTestCase() {
     }
 
     /**
-     * The card carries **no** accent edge (design R1): a commented range wears the accent in exactly one
+     * The card carries **no** accent edge: a commented range wears the accent in exactly one
      * place, the gutter bar over its lines, so a card and its range are tied by one mark instead of two
      * parallel blue lines. Asserted two ways, because either alone is weak: the border's insets are
      * symmetric (an accent line carried by the border — the shipped-then-retracted design — makes the
@@ -99,7 +99,7 @@ class StoredCommentCardTest : BasePlatformTestCase() {
 
         assertTrue("actions are revealed on hover", actionsOf(card).all { it.isVisible })
         assertTrue("actions live in the header row", actionsOf(card).all { it.parent === header })
-        // The card also reports the hover to the overlay, which owns the range highlight (design D4).
+        // The card also reports the hover to the overlay, which owns the range highlight.
         assertEquals(listOf(true), hovers)
     }
 
@@ -177,7 +177,7 @@ class StoredCommentCardTest : BasePlatformTestCase() {
     }
 
     /**
-     * The collision rule (design D5): when the header row is too narrow for both, the icons keep their
+     * The collision rule: when the header row is too narrow for both, the icons keep their
      * full width *inside* the row and the author label is the thing that yields. Asserted on bounds,
      * since nothing renders headlessly — and asserted at a row width no real card reaches, because the
      * failure it guards against is exactly the unreachable-action defect at an extreme width.
@@ -234,7 +234,7 @@ class StoredCommentCardTest : BasePlatformTestCase() {
      * the card — and because the body is measured at that same number, it re-wraps and the card grows
      * *taller* instead of having its text clipped.
      *
-     * The one-width invariant is asserted in the same pass (design D1): after the narrowing, the header
+     * The one-width invariant is asserted in the same pass: after the narrowing, the header
      * and the body are laid out at one content width, the one `getPreferredSize` measured at.
      */
     fun `test the card follows the row's width, re-wrapping its body rather than clipping it`() {

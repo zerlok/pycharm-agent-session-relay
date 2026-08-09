@@ -7,13 +7,13 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 
 /**
- * The on-disk form of a [ReviewComment]: a flat, `xmlb`-serializable bean (design D2). `xmlb` needs a
- * no-arg constructor and mutable `var` properties and cannot serialize a Kotlin sealed hierarchy,
- * `data class`, or `value class` — so the domain types stay inert (ARCHITECTURE §3.1) and this DTO
- * absorbs every serialization concession.
+ * The on-disk form of a [ReviewComment]: a flat, `xmlb`-serializable bean. `xmlb` needs a no-arg
+ * constructor and mutable `var` properties and cannot serialize a Kotlin sealed hierarchy, `data
+ * class`, or `value class` — so the domain types stay inert and this DTO absorbs every
+ * serialization concession.
  *
- * Line numbers keep the domain's 0-based convention on disk; the 1-based form is a display/export
- * concern only (ARCHITECTURE §3.2).
+ * Line numbers keep the domain's 0-based convention on disk; the 1-based form is a display and
+ * export concern only.
  */
 class PersistedComment {
     var id: String = ""
@@ -86,9 +86,9 @@ fun ReviewComment.toPersisted(): PersistedComment = PersistedComment().also { dt
 }
 
 /**
- * DTO → domain, tolerating degenerate input (design "Risks", task 1.3): missing fields carry their
- * bean defaults and an unrecognized [subjectKind] or [status] falls back safely rather than throwing,
- * so a schema-drifted or partial record still loads instead of aborting the whole restore.
+ * DTO → domain, tolerating degenerate input: missing fields carry their bean defaults and an
+ * unrecognized [subjectKind] or [status] falls back safely rather than throwing, so a
+ * schema-drifted or partial record still loads instead of aborting the whole restore.
  */
 fun PersistedComment.toDomain(): ReviewComment = ReviewComment(
     id = CommentId(id),

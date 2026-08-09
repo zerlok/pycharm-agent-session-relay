@@ -2,11 +2,11 @@ package io.github.zerlok.agentsessionrelay.domain
 
 /**
  * What a [ReviewComment] is about — an open (sealed) type so a comment is not limited to a single
- * line range (ARCHITECTURE §3). Line-anchored subjects carry a file `url` and 0-based line numbers
- * (editor convention); [Files] and [Project] need no line anchor.
+ * line range. Line-anchored subjects carry a file `url` and 0-based line numbers (editor
+ * convention); [Files] and [Project] need no line anchor.
  *
- * The MVP authors only [Line] / [LineRange]; the others are modeled so later scopes are additive,
- * never a model rewrite.
+ * Only [Line] / [LineRange] are authored today; the others are modeled so later scopes are
+ * additive, never a model rewrite.
  */
 sealed interface Subject {
 
@@ -33,8 +33,8 @@ sealed interface Subject {
  * They live in the domain because more than one layer asks them and the answers must be the same
  * answer. In particular [fitsIn] is the single rule behind **every** [CommentStatus.ORPHANED]
  * verdict — the presentation layer's, decided against an open document, and the delivery layer's,
- * decided against a file's content at export. Two copies of that rule would be two definitions of
- * "these lines no longer exist".
+ * decided against a file's content at export. Two copies of it would be two definitions of "these
+ * lines no longer exist".
  */
 object Subjects {
 

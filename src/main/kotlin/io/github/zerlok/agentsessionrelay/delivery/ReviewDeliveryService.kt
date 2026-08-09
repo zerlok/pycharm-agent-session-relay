@@ -26,20 +26,18 @@ import io.github.zerlok.agentsessionrelay.ui.EditorReviewOverlayService
 import java.nio.file.Path
 
 /**
- * Owner of the whole submit pipeline (spec `review-delivery`, ARCHITECTURE §3): flush live positions
- * → verify anchors → plan with the pure [ReviewDelivery] → write `REVIEW.md` → refresh the VFS →
- * clear the batch on success, preserve it on failure. The presentation-layer action contributes only
- * the invocation and the notifications, so every decision here is reachable from a test without an
+ * Owner of the whole submit pipeline (spec `review-delivery`): flush live positions → verify
+ * anchors → plan with the pure [ReviewDelivery] → write `REVIEW.md` → refresh the VFS → clear the
+ * batch on success, preserve it on failure. The presentation-layer action contributes only the
+ * invocation and the notifications, so every decision here is reachable from a test without an
  * `AnActionEvent`.
  *
- * **Threading (ARCHITECTURE §5.3).** The pipeline hops once and only once:
+ * **Threading** (ARCHITECTURE.md — "Threading"). The pipeline hops once and only once:
  *
  * 1. **EDT** — flush live positions into the store and snapshot the batch. Store mutations are
  *    EDT-only.
  * 2. **Background** ([Task.Backgroundable]) — [verifyAnchors] reads every commented file's content,
- *    and resolving the artifact in the VFS needs a synchronous refresh. Neither is legal on the EDT,
- *    which is exactly why this stage could not live in the action and why verification used to be
- *    written against live editor markers instead of file content.
+ *    and resolving the artifact in the VFS needs a synchronous refresh. Neither is legal on the EDT.
  * 3. **EDT** — write the artifact through its [Document], apply the verdicts, and take the
  *    clear-or-preserve decision.
  *
@@ -51,14 +49,14 @@ import java.nio.file.Path
  * platform contract. What the off-EDT rule protects — a submit that does not freeze the IDE — is
  * carried by stage 2, which holds the work that can actually block.
  *
- * The exported text must reflect the verdicts, which are only *stored* in stage 3 — so stage 2 plans
- * from the snapshot with the verdicts applied in memory. [ReviewExporter][io.github.zerlok.agentsessionrelay.export.ReviewExporter]
- * stays a pure function of the batch it is handed, and the store still ends up carrying what was
- * exported.
+ * The exported text must reflect the verdicts, which are only *stored* in stage 3, so stage 2 plans
+ * from the snapshot with the verdicts applied in memory. That keeps
+ * [ReviewExporter][io.github.zerlok.agentsessionrelay.export.ReviewExporter] a pure function of the
+ * batch it is handed while the store still ends up carrying what was exported.
  *
  * NOTE: this reaches *up* into [EditorReviewOverlayService] for one thing only — the live-marker
- * positions, which exist nowhere else. The delivery stage owns *when* the flush happens; the view
- * still owns the markers it reads.
+ * positions, which exist nowhere else. Delivery owns *when* the flush happens; the view still owns
+ * the markers it reads.
  */
 @Service(Service.Level.PROJECT)
 class ReviewDeliveryService(private val project: Project) {
@@ -90,11 +88,11 @@ class ReviewDeliveryService(private val project: Project) {
         val service = ReviewBatchService.getInstance(project)
 
         // Stage 1 (EDT): flush the live in-IDE positions into the store, so the ranges verified,
-        // exported, and persisted below are the ones the user currently sees (ARCHITECTURE §3.2).
+        // exported, and persisted below are the ones the user currently sees.
         for ((id, subject) in EditorReviewOverlayService.getInstance(project).currentPositions()) {
             service.updatePosition(id, subject)
         }
-        // The immutable snapshot the background stage works from (ARCHITECTURE §5.3).
+        // The immutable snapshot the background stage works from.
         val batch = service.comments()
 
         val basePath = project.basePath
@@ -150,8 +148,8 @@ class ReviewDeliveryService(private val project: Project) {
      * read are **absent** — "we could not check" must not reach the agent as "we checked and it
      * moved". A closed file is not one of those cases.
      *
-     * Reads file content, so it must run off the EDT (ARCHITECTURE §5.3); the read action is what
-     * makes touching the VFS and its documents from there legal.
+     * Reads file content, so it must run off the EDT; the read action is what makes touching the VFS
+     * and its documents from there legal.
      *
      * This never moves a comment: it yields statuses, never subjects.
      */
@@ -192,10 +190,10 @@ class ReviewDeliveryService(private val project: Project) {
      * Stage 3's write: put [content] into the artifact's [Document] — the object an open editor
      * renders — inside a write action, then save it to disk.
      *
-     * This is the whole point of the stage split changing. Writing the file directly leaves an open
-     * `REVIEW.md` showing the previous export, and a submit cannot tell that state apart from a
-     * successful one, so it clears the batch over it. Here the text the user sees and the text on
-     * disk are set by the same action, and a failure to reach the Document is a failure to submit.
+     * Writing the file directly would leave an open `REVIEW.md` showing the previous export, and a
+     * submit cannot tell that state apart from a successful one, so it would clear the batch over
+     * it. Here the text the user sees and the text on disk are set by the same action, and a failure
+     * to reach the Document is a failure to submit.
      *
      * The write action is wrapped in a *command* because the target may be an open editor: the
      * platform's undo and PSI-commit machinery expects a document change to arrive commanded.

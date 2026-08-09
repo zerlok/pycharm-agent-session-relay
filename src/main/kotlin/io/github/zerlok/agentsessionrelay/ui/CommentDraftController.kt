@@ -13,7 +13,7 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
  * author a new comment or to edit an existing one — closes any previous one, so at most one comment
  * box is visible at a time (the single-active-box rule).
  *
- * It is also the owner of the "currently-editing comment id" (design D3): when an edit box is open,
+ * It is also the owner of the "currently-editing comment id": when an edit box is open,
  * [editingCommentId] names its comment, and every change (open/close) is announced on
  * [CommentEditingListener] so the [EditorReviewOverlay] cards reconcile — suppressing the edited
  * comment's read-only card while its box is open.
@@ -26,7 +26,7 @@ class CommentDraftController(private val project: Project) : Disposable {
 
     /**
      * The single in-progress draft, if any. Exposed so [RelayHoverListener] can route editor mouse
-     * events to it for edge-drag range resizing (`adjustable-comment-range`) while it is open.
+     * events to it for edge-drag range resizing while it is open.
      */
     internal val activeDraft: CommentDraft? get() = active
 
@@ -40,8 +40,8 @@ class CommentDraftController(private val project: Project) : Disposable {
     }
 
     /**
-     * Opens an edit box for [comment], seeded with its body and range (design D1). Goes through the
-     * same [close]-first path so the single-active-box rule holds, then marks [comment] as the
+     * Opens an edit box for [comment], seeded with its body and range. Goes through the same
+     * [close]-first path so the single-active-box rule holds, then marks [comment] as the
      * currently-editing one and notifies overlays so its read-only card is suppressed.
      */
     fun openForEdit(editor: Editor, comment: ReviewComment) {
@@ -69,15 +69,14 @@ class CommentDraftController(private val project: Project) : Disposable {
     override fun dispose() = close()
 
     /**
-     * Line range to comment on: the selection only when [clickedLine] is *contained* in it, else that
-     * line alone. Without the containment test a selection anywhere in the file hijacked every gutter
-     * "+", so the box opened nowhere near the click.
+     * Line range to comment on: the selection only when [clickedLine] is *contained* in it, else
+     * that line alone. Without the containment test, a selection anywhere in the file would hijack
+     * every gutter "+" and open the box nowhere near the click.
      *
      * Containment is tested against the **untrimmed** span while the trailing-line trim applies only
-     * to the returned range. That asymmetry is what keeps both entry points on this one rule
-     * (`review-annotation`: "Right-click with the caret on the excluded trailing line"): a top-down
-     * drag-select leaves the caret on the very line the trim drops, and `AddReviewCommentAction`
-     * passes that caret line.
+     * to the returned range. That asymmetry is what keeps both entry points on this one rule: a
+     * top-down drag-select leaves the caret on the very line the trim drops, and
+     * [AddReviewCommentAction] passes that caret line.
      */
     fun rangeFor(editor: Editor, clickedLine: Int): Pair<Int, Int> {
         val selection = editor.selectionModel

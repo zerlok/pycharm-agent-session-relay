@@ -32,9 +32,9 @@ import javax.swing.tree.TreeSelectionModel
 /**
  * The tool-window presentation of the review batch (spec `review-batch`). Lists pending comments
  * grouped by file — each entry showing its 1-based line range and a body snippet — with
- * double-click navigation, a per-entry delete, and a toolbar (Refresh & review, Clear). It is a
- * pure view: it never holds a store copy, it subscribes to [ReviewBatchListener] and rebuilds from
- * [ReviewBatchService.comments] on every event (single source of truth, ARCHITECTURE §3.1).
+ * double-click navigation, a per-entry delete, and a toolbar (Submit, Refresh & review, Delete,
+ * Clear). It is a pure view: it never holds a store copy, it subscribes to [ReviewBatchListener]
+ * and rebuilds from [ReviewBatchService.comments] on every event.
  */
 class ReviewBatchToolWindowFactory : ToolWindowFactory, DumbAware {
 
@@ -153,7 +153,7 @@ private class ReviewBatchPanel(
     companion object {
         private const val SNIPPET_CHARS = 80
 
-        /** A group key per file url; the non-line subjects (unauthored in the MVP) fall into buckets. */
+        /** A group key per file url; the subjects that name no single file fall into buckets. */
         private fun groupKey(subject: Subject): String = when (subject) {
             is Subject.Line -> subject.fileUrl
             is Subject.LineRange -> subject.fileUrl
@@ -168,7 +168,7 @@ private class ReviewBatchPanel(
             VirtualFileManager.getInstance().findFileByUrl(key)?.presentableName
                 ?: key.substringAfterLast('/').ifBlank { key }
 
-        // 1-based line range for display (the store is 0-based, editor convention — ARCHITECTURE §3.2).
+        // 0-based in the domain, 1-based wherever the user reads them.
         private fun rangeLabel(subject: Subject): String = when (subject) {
             is Subject.Line -> "L${subject.line + 1}"
             is Subject.LineRange -> "L${subject.startLine + 1}-${subject.endLine + 1}"

@@ -45,8 +45,8 @@
     </extensions>
 
     <actions>
-        <!-- Right-click "Add review comment" (design D2): opens the inline box over the selection, or
-             the caret line when there is no selection — the same range rule as the gutter "+". -->
+        <!-- Right-click "Add review comment": opens the inline box over the selection, or the caret
+             line when there is no selection — the same range rule as the gutter "+". -->
         <action id="io.github.zerlok.agentsessionrelay.AddReviewComment"
                 class="io.github.zerlok.agentsessionrelay.ui.AddReviewCommentAction"
                 text="Add Review Comment"

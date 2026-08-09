@@ -12,19 +12,18 @@ import io.github.zerlok.agentsessionrelay.storage.ReviewBatchStorage
 import java.util.UUID
 
 /**
- * The logic layer (ARCHITECTURE §3.1): the **only** API the presentation layer sees. It mediates
- * every read/write to [ReviewBatchStorage] and dispatches change events on [ReviewBatchListener].
- * No Swing, no editor imports. In-memory storage now; swappable for a persistent backing behind the
- * same interface without the view or this API changing.
+ * The application layer (ARCHITECTURE.md — "Layers"): the **only** API the presentation layer
+ * sees. It mediates every read/write to [ReviewBatchStorage] and dispatches change events on
+ * [ReviewBatchListener]. No Swing, no editor imports.
  *
- * Commands and event dispatch run on the EDT (ARCHITECTURE §5.3): they mutate Relay's own state and
- * drive UI-affecting listeners, so callers invoke them from the EDT.
+ * Commands and event dispatch run on the EDT: they mutate Relay's own state and drive UI-affecting
+ * listeners, so callers invoke them from the EDT.
  */
 @Service(Service.Level.PROJECT)
 class ReviewBatchService(private val project: Project) {
 
-    // The one place the concrete backing is named — the whole persistence swap. Obtained as a service,
-    // not constructed: see PersistentReviewBatchStorage for why the platform must own its lifecycle.
+    // The one place the concrete backing is named. Obtained as a service, not constructed: see
+    // PersistentReviewBatchStorage for why the platform must own its lifecycle.
     private val storage: ReviewBatchStorage = project.service<PersistentReviewBatchStorage>()
 
     // -- Queries --
@@ -52,10 +51,10 @@ class ReviewBatchService(private val project: Project) {
     }
 
     /**
-     * The position-sync seam (ARCHITECTURE §3.2): replaces a stored comment's [subject] with the
-     * position the view read from the live marker, then publishes the change. This is the flush a
-     * later stage (review-delivery) runs at submit/export time so the exported line range is the
-     * *current* one — not a per-keystroke write. No-op if the id is unknown.
+     * The position-sync seam (ARCHITECTURE.md — "Positions and anchoring"): replaces a stored
+     * comment's [subject] with the position the view read from the live marker, then publishes the
+     * change. Run at the sync points, so the exported line range is the *current* one without a
+     * per-keystroke write. No-op if the id is unknown.
      */
     fun updatePosition(id: CommentId, subject: Subject) {
         val existing = storage.get(id) ?: return
@@ -66,10 +65,10 @@ class ReviewBatchService(private val project: Project) {
     }
 
     /**
-     * The body-edit seam, mirroring [updatePosition] exactly (design D4): replaces a stored comment's
-     * [body] in place, preserving its id, subject, and all anchoring data, then publishes the change.
-     * An edit resubmit calls this alongside [updatePosition]; both drive every surface's reconcile off
-     * the same `commentUpdated` event — never delete-and-re-add. No-op if the id is unknown or the body
+     * The body-edit seam, mirroring [updatePosition]: replaces a stored comment's [body] in place,
+     * preserving its id, subject, and all anchoring data, then publishes the change. An edit
+     * resubmit calls this alongside [updatePosition]; both drive every surface's reconcile off the
+     * same `commentUpdated` event — never delete-and-re-add. No-op if the id is unknown or the body
      * is unchanged.
      */
     fun updateBody(id: CommentId, body: String) {
@@ -81,10 +80,10 @@ class ReviewBatchService(private val project: Project) {
     }
 
     /**
-     * The anchor-status seam, mirroring [updatePosition] / [updateBody] (design D4): replaces a stored
-     * comment's [CommentStatus] in place, preserving its id, subject, body, and anchoring data, then
-     * publishes the change. Set by the presentation layer when a comment's recorded range stops fitting
-     * its open document ([CommentStatus.ORPHANED]) and by the delivery layer at the export sync point,
+     * The anchor-status seam, mirroring [updatePosition] / [updateBody]: replaces a stored comment's
+     * [CommentStatus] in place, preserving its id, subject, body, and anchoring data, then publishes
+     * the change. Set by the presentation layer when a comment's recorded range stops fitting its
+     * open document ([CommentStatus.ORPHANED]) and by the delivery layer at the export sync point,
      * which reaches both verdicts from the file's content.
      *
      * No-op — with **no event** — if the id is unknown or the status is unchanged. That idempotence is

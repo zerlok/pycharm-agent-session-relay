@@ -3,15 +3,15 @@ package io.github.zerlok.agentsessionrelay.domain
 import java.security.MessageDigest
 
 /**
- * Pure helpers for the re-anchoring seeds a comment stores at author time (ARCHITECTURE §5.2).
- * No platform imports — callers extract the surrounding text from the document and pass strings in.
+ * Pure helpers for the anchoring seeds a comment stores at author time. No platform imports —
+ * callers extract the surrounding text from the document and pass strings in.
  */
 object Anchoring {
 
     /**
-     * Deterministic hash of the context window around a comment's anchor, used later to relocate the
-     * comment after out-of-IDE edits. SHA-256 (stable across JVMs and runs, unlike [String.hashCode])
-     * truncated to 16 hex chars — collision-safe enough for a re-anchoring seed.
+     * Deterministic hash of the context window around a comment's anchor — the seed a later tier
+     * would relocate the comment by. SHA-256 rather than [String.hashCode], which is not stable
+     * across JVMs and runs; truncated to 16 hex chars, collision-safe enough for a seed.
      */
     fun contextHash(context: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(context.toByteArray(Charsets.UTF_8))
@@ -19,9 +19,9 @@ object Anchoring {
     }
 
     /**
-     * Whether the text a comment was anchored to ([recorded]) still describes the text now found at its
-     * recorded range ([current]) — the tier-2 anchor check run at the export sync point (ARCHITECTURE
-     * §5.2). Pure comparison: it never searches for [recorded] elsewhere and never moves anything.
+     * Whether the text a comment was anchored to ([recorded]) still describes the text now found at
+     * its recorded range ([current]) — the anchor check run at the export sync point. Pure
+     * comparison: it never searches for [recorded] elsewhere and never moves anything.
      *
      * A null [recorded] means there is nothing to verify (a pre-anchoring record, or a subject with no
      * line anchor), which is *not* evidence of drift — "unverifiable is not stale".

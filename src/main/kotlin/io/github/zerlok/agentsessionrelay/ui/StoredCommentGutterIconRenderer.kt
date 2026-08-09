@@ -13,14 +13,14 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 import javax.swing.Icon
 
 /**
- * The persistent gutter marker for a stored comment (ARCHITECTURE §3.3). It is deliberately a
- * *different* icon from the transient hover "+" ([AddCommentGutterIconRenderer]): the "+" means
- * "add here", this speech-balloon means "a comment exists here" (design decision D-hover-vs-stored).
+ * A gutter icon for a stored comment: deliberately a *different* icon from the transient hover "+"
+ * ([AddCommentGutterIconRenderer]), because the "+" means "add here" while this speech-balloon means
+ * "a comment exists here". Right-clicking it offers Edit and Delete, both routed through
+ * [ReviewBatchService] so every surface reconciles off the resulting store event.
  *
- * Right-clicking the marker offers "Edit comment" (re-opening the authoring box seeded, via
- * [CommentDraftController], a second discoverable entry point beside the card's Edit — design D5) and
- * "Delete comment", both of which route through the logic layer; every surface (this marker included)
- * then reconciles off the resulting store event — the renderer never mutates a view directly.
+ * TODO: not wired to anything today — a commented range is marked by the gutter *bar* on
+ *   [DocumentReviewMarkers]' highlighter instead. Kept for the deferred hide-comments change, which
+ *   needs a gutter affordance to bring a hidden comment back.
  */
 class StoredCommentGutterIconRenderer(
     private val project: Project,

@@ -10,18 +10,16 @@ import javax.swing.JPanel
  * viewport width (`ComponentInlayAlignment.FIT_VIEWPORT_WIDTH`), and it lays its single child out at
  * `min(row width, reading measure)`, pinned to the leading edge.
  *
- * This is the plugin's whole remaining share of the width rule. Everything else — what the viewport
- * width *is*, and re-laying the row out when a split or a window resize changes it — is the
- * platform's, which is why [InlineWidthWatcher][] and the editor-geometry arithmetic that used to
- * live in [InlineWidth] are gone. It mirrors what the platform's own review comments do
- * (`CodeReviewComponentInlayRenderer` wraps its content in a width-restricted panel and hands the
- * result to `FIT_VIEWPORT_WIDTH`); the wrapping panel is ours only because that one lives in
- * `com.intellij.collaboration.*`, which ARCHITECTURE §8 rules out as a dependency.
+ * This is the plugin's whole share of the width rule. Everything else — what the viewport width
+ * *is*, and re-laying the row out when a split or a window resize changes it — is the platform's.
+ * It mirrors what the platform's own review comments do (`CodeReviewComponentInlayRenderer` wraps
+ * its content in a width-restricted panel and hands the result to `FIT_VIEWPORT_WIDTH`); the
+ * wrapping panel is ours only because that one lives in `com.intellij.collaboration.*`, which
+ * ARCHITECTURE.md — "Platform API policy" rules out as a dependency.
  *
- * **The width still flows one way.** [contentWidthPx] reads this row's own width — imposed from
- * above, from the viewport — and never the child's, so the child's preferred size cannot feed back
- * into the width it is measured at. That is the invariant the previous design protected by pulling
- * the number from the editor instead; the source moved, the direction did not.
+ * **Width flows one way.** [contentWidthPx] reads this row's own width — imposed from above, from
+ * the viewport — and never the child's, so the child's preferred size cannot feed back into the
+ * width it is measured at.
  *
  * The child is set after construction so it can be built against [contentWidthPx] — the child
  * measures its wrapping body at the width this row will give it, and needs to ask before it exists.
@@ -53,7 +51,7 @@ internal class ReadingWidthRow(private val editor: EditorEx) : JPanel(null) {
         val cap = InlineWidth.readingMeasurePx()
         if (width <= 0) return cap
         // The row spans the viewport, but the inspections widget floats over the viewport's trailing
-        // edge without being in its layout, so the usable width is narrower than the row (design D7).
+        // edge without being in its layout, so the usable width is narrower than the row.
         val usable = width - InlineWidth.overlayInsetPx(editor.scrollPane)
         return minOf(usable, cap).coerceAtLeast(1)
     }

@@ -380,7 +380,7 @@ class ReviewDeliveryServiceTest : BasePlatformTestCase() {
         assertEquals(CommentStatus.STALE, statusOf(comment.id))
     }
 
-    // -- Threading (ARCHITECTURE §5.3, design D2) --
+    // -- Threading --
 
     /**
      * The read stage must not need the EDT — that requirement is the whole reason the pipeline moved

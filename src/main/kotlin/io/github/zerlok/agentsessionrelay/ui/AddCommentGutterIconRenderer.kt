@@ -13,8 +13,8 @@ class AddCommentGutterIconRenderer(
     private val line: Int,
 ) : GutterIconRenderer() {
 
-    // Relay-branded "+" so the affordance is distinguishable at a glance from the plain platform "+"
-    // that GitHub/GitLab review plugins place in the gutter; the tooltip names the owner too.
+    // Relay-branded "+", so the affordance is distinguishable at a glance from the plain platform
+    // "+" the GitHub/GitLab review plugins place in the gutter; the tooltip names the owner too.
     override fun getIcon(): Icon = ICON
 
     override fun getTooltipText(): String = "Relay: add review comment"

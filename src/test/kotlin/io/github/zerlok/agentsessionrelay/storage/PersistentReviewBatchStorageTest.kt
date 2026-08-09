@@ -14,11 +14,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for [PersistentReviewBatchStorage] (tasks 4.2). Two concerns:
+ * Unit tests for [PersistentReviewBatchStorage]. Two concerns:
  *  - **CRUD parity** with [InMemoryReviewBatchStorage] — the durable store must behave identically
- *    behind the [ReviewBatchStorage] interface (design D1).
+ *    behind the [ReviewBatchStorage] interface.
  *  - **getState→loadState round-trip** — a snapshot serialized and inflated preserves the comments,
- *    their insertion order, and their identity (design D2, D3, D4).
+ *    their insertion order, and their identity.
  *
  * Pure Kotlin: the CRUD map and the state map/inflate are plain methods, so no platform fixture is
  * needed to exercise them (the `@Service` lifecycle is the platform's concern, not this logic's).
@@ -178,7 +178,7 @@ class PersistentReviewBatchStorageTest {
     // The platform drives loadState/getState only via the @State annotation; a bare @Storage on the
     // class is inert, so persistence would silently break with no test to catch it (that was the exact
     // bug). This reflective check fails fast if @State, its WORKSPACE_FILE storage, or the EDT pin for
-    // the getState race (ARCHITECTURE §5.3) is ever dropped.
+    // the getState race is ever dropped.
     @Test
     fun `is registered with a State pointing at the workspace file`() {
         val state = PersistentReviewBatchStorage::class.java.getAnnotation(State::class.java)

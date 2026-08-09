@@ -23,9 +23,9 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
  * the **real** [EditorReviewOverlayService] lifecycle (its `editorCreated` / `editorReleased` path) so
  * that marker ownership, ref-counting, and the sync points are exercised as they ship:
  *
- * - **One marker per document, not per editor** (design D2): a file open in two splits carries a
+ * - **One marker per document, not per editor**: a file open in two splits carries a
  *   single position marker, which survives closing one of them and goes away with the last.
- * - **Orphaned, not clamped** (design D4): a comment whose recorded range does not exist in the
+ * - **Orphaned, not clamped**: a comment whose recorded range does not exist in the
  *   document renders nothing, keeps its recorded range through every sync point, and the store
  *   mutation it performs from inside a reconcile settles in one pass instead of cascading.
  *
@@ -164,7 +164,7 @@ class DocumentReviewMarkersTest : BasePlatformTestCase() {
     }
 
     /**
-     * Reentrancy (design D4): marking `ORPHANED` happens *inside* the reconcile that discovered it, so
+     * Reentrancy: marking `ORPHANED` happens *inside* the reconcile that discovered it, so
      * the resulting `commentUpdated` re-enters that same reconcile. This pins that it settles in one
      * extra pass instead of cascading — a non-idempotent status write would publish again on every
      * re-entry. Asserted on the published event stream, which is the observable the loop turns on:

@@ -14,8 +14,8 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * Covers the authoring box's *presentation* (review-annotation "Present the authoring box as the stored
- * card's editing state", design R2/R3): the box is the same object as the read-only card in its editing
+ * Covers the authoring box's *presentation* (review-annotation: "Present the authoring box as the
+ * stored card's editing state"): the box is the same object as the read-only card in its editing
  * state, and its two actions are the plugin's own — one accent-filled "Comment", one plain "Cancel",
  * neither painting a background patch.
  *
@@ -116,7 +116,7 @@ class CommentDraftPresentationTest : BasePlatformTestCase() {
     }
 
     /**
-     * One font for one object (design D6): the box's body and the card's body render in the same
+     * One font for one object: the box's body and the card's body render in the same
      * typeface, so clicking Edit does not make the comment look like a different comment. Neither may
      * take it from its Swing class's default — a `JTextArea` inherits the LaF's *Monospaced*
      * `TextArea.font` while an [EditorTextField] carries the UI font — so both are asserted against the

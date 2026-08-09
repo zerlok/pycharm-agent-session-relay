@@ -4,13 +4,12 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.export.ReviewExporter
 
 /**
- * The pure decision of the Delivery stage (ARCHITECTURE §3): given the current batch, decide whether
- * there is anything to submit and, if so, produce the **exact** text of the `REVIEW.md` artifact.
- * No platform imports — trivially unit-testable without an editor, VFS, or filesystem (design D5,
- * mirroring [ReviewExporter]).
+ * The pure decision of the Delivery stage: given the current batch, decide whether there is
+ * anything to submit and, if so, produce the **exact** text of the `REVIEW.md` artifact. No
+ * platform imports, so it is testable without an editor, VFS, or filesystem — like [ReviewExporter].
  *
- * [ReviewDeliveryService] wraps this with the side effects — the position flush, anchor verification,
- * the off-EDT write, the VFS refresh, and the clear-or-preserve decision — while the
+ * [ReviewDeliveryService] wraps this with the side effects — the position flush, anchor
+ * verification, the write, the VFS refresh, and the clear-or-preserve decision — while the
  * empty-vs-nonempty branch and the written string live here.
  */
 object ReviewDelivery {
@@ -18,8 +17,8 @@ object ReviewDelivery {
     /** The Relay-owned generated artifact written at the project base path, overwritten each submit. */
     const val FILE_NAME = "REVIEW.md"
 
-    // A minimal one-line header orienting the agent (delivery concern, kept out of the Exporter —
-    // design open question). The Exporter's @path#L refs follow, so this never precedes a bare ref.
+    // A minimal one-line header orienting the agent. A delivery concern, kept out of the Exporter so
+    // the exported batch stays exactly what the agent's reference syntax describes.
     private const val HEADER = "# Code review"
 
     /** The outcome of planning a submit: either nothing to submit, or the text to write. */

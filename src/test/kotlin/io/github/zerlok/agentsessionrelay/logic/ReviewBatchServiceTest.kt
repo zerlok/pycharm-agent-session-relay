@@ -6,10 +6,10 @@ import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 import io.github.zerlok.agentsessionrelay.domain.Subject
 
 /**
- * Real-platform test of the logic layer against a live project fixture (task 2 of the test brief).
+ * Real-platform test of the logic layer against a live project fixture.
  * Exercises [ReviewBatchService] end-to-end: it mutates the real storage AND publishes on the real
  * [ReviewBatchListener] `MessageBus` topic. No mocking of the platform — a probe listener subscribes
- * via the project message bus, exactly as a real view would (ARCHITECTURE §3.1).
+ * via the project message bus, exactly as a real view would.
  */
 class ReviewBatchServiceTest : BasePlatformTestCase() {
 
@@ -162,7 +162,7 @@ class ReviewBatchServiceTest : BasePlatformTestCase() {
     }
 
     /**
-     * The idempotence design D4's reentrancy contract rests on: a status the comment already has is a
+     * The idempotence the reentrancy contract rests on: a status the comment already has is a
      * no-op that publishes NOTHING, so a status set from inside a view's reconcile cannot cascade.
      */
     fun `test updateStatus to the same status does not republish`() {

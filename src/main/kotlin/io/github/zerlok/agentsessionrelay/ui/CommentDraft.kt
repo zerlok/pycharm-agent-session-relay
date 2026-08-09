@@ -55,30 +55,29 @@ import javax.swing.KeyStroke
 import kotlin.math.abs
 
 /**
- * One in-progress review comment: a blue rectangle over the commented line range plus an
- * inline comment box rendered as a block inlay *below* the range (it pushes the following code down
- * rather than floating over it — GitHub/GitLab style). The box inlay spans the editor's viewport
- * (`ComponentInlayAlignment.FIT_VIEWPORT_WIDTH`), but its visible content is capped at the reading
- * measure by [ReadingWidthRow] — so it reads as a column rather than an edge-to-edge stripe, and the
- * platform re-lays it out on a split or a window resize instead of leaving it at the width it opened
- * with.
+ * One in-progress review comment: a wash over the commented line range plus an inline comment box
+ * rendered as a block inlay *below* the range, so it pushes the following code down rather than
+ * floating over it. The box's inlay row spans the editor's viewport
+ * (`ComponentInlayAlignment.FIT_VIEWPORT_WIDTH`) while its content is capped at the reading measure
+ * by [ReadingWidthRow], so it reads as a column and the platform re-lays it out on a split or a
+ * window resize instead of leaving it at the width it opened with.
  *
- * The commented range is **adjustable after the box opens** (`adjustable-comment-range`): the top
- * and bottom borders of the wash are draggable resize grips. Per D1, an edge-drag *hides* the box
- * (disposing the inlay so it reserves no vertical space) for an unobstructed code view and rebuilds
- * it once on release under the range's new bottom line, with the typed body preserved and focus
- * returned via the same deferred [IdeFocusManager] path the box already uses. The wash keeps
- * rendering and resizes live throughout the drag. Edge hit-testing / cursor / consume() are driven
- * by [RelayHoverListener] on the shared editor mouse channel and routed here via the internal
- * `onMouse*` handlers while this is the project's active draft.
+ * The commented range is **adjustable after the box opens**: the top and bottom borders of the wash
+ * are draggable resize grips. An edge-drag *hides* the box — disposing the inlay, so it reserves no
+ * vertical space and the code is unobstructed while being sized — and rebuilds it once on release
+ * under the range's new bottom line, with the typed body preserved and focus returned through the
+ * same deferred [IdeFocusManager] path. The wash keeps rendering and resizes live throughout the
+ * drag. Edge hit-testing, cursor and `consume()` are driven by [RelayHoverListener] on the shared
+ * editor mouse channel and routed here through the internal `onMouse*` handlers while this is the
+ * project's active draft.
  *
- * [submit] hands the captured comment to [ReviewBatchService] (the logic layer); user feedback is
- * driven off the store event by `ReviewBatchNotifier`, not raised here.
+ * [submit] hands the captured comment to [ReviewBatchService]; user feedback is driven off the
+ * resulting store event by [ReviewBatchNotifier], not raised here.
  *
- * The same box does double duty as the **edit** surface (design D1): when [editing] is a stored
- * comment, the body field is seeded with its body, the box opens over its current range, and
- * [submit] routes to an in-place `updateBody` + `updatePosition` (same id) instead of `addComment`.
- * Everything else — the wash, edge-drag resize, key capture, deferred focus — is identical.
+ * The same box does double duty as the **edit** surface: when [editing] is a stored comment, the
+ * body field is seeded with its body, the box opens over its current range, and [submit] routes to
+ * an in-place `updateBody` + `updatePosition` (same id) instead of `addComment`. Everything else is
+ * identical.
  */
 class CommentDraft private constructor(
     private val editor: EditorEx,
@@ -94,29 +93,29 @@ class CommentDraft private constructor(
     // The wash background attributes, reused every time the highlighter is (re)created on resize.
     private val attributes = TextAttributes().apply { backgroundColor = RelayStyle.RANGE_WASH }
 
-    // Paints the brighter/thicker top and bottom edge lines that signal draggability (D4). It reads
-    // the current start/end and the hovered/dragged edge off the draft, so a bare repaint reflects
-    // both a live resize and a hover change without touching the highlighter.
+    // Paints the brighter, thicker top and bottom edge lines that signal draggability. It reads the
+    // current start/end and the hovered/dragged edge off the draft, so a bare repaint reflects both
+    // a live resize and a hover change without touching the highlighter.
     private val edgeRenderer = CustomHighlighterRenderer { _, _, g -> paintEdges(g) }
 
-    // Live wash over the commented lines; recreated on each range change (positions can't be moved
-    // on an existing RangeHighlighter). This is the VIEW's live position marker (ARCHITECTURE §3.2).
+    // Live wash over the commented lines; recreated on each range change, since positions cannot be
+    // moved on an existing RangeHighlighter. This is the draft's live position source.
     private var highlighter: RangeHighlighter = createHighlighter()
 
     // The comment body lives in an inner IntelliJ editor (an EditorTextField), so while it is focused
     // `CommonDataKeys.EDITOR` resolves to *this* editor and every editing keystroke — selection,
-    // word-nav, word-delete, backspace, clipboard, undo, and newline-on-Enter — acts on the body
-    // natively rather than leaking to the host editor (D1). The field (and its document) is persistent
-    // across hide/rebuild, so its text is preserved for free; each rebuild only re-wraps it in a fresh
-    // panel/inlay (D4). A subclassed preferred height floors the box at a compact [BODY_ROWS]-row
-    // footprint (comment-box-sizing) and lets the field grow past that as the body is typed.
+    // word-nav, word-delete, backspace, clipboard, undo, newline-on-Enter — acts on the body natively
+    // rather than leaking to the host editor. The field and its document are retained across
+    // hide/rebuild, so the typed text survives for free; a rebuild only re-wraps it in a fresh panel
+    // and inlay. A subclassed preferred height floors the box at a compact [BODY_ROWS]-row footprint
+    // and lets the field grow past that as the body is typed.
     private val bodyField: EditorTextField = object : EditorTextField(
-        // In edit mode the stored body is the document's *initial content*, not a change applied to an
-        // empty one (D4). Seeding afterwards — `bodyField.text = editing.body` — is a real document
-        // change, recorded by the platform's undo machinery into whatever command is open (the edit
-        // action's own), so the first Ctrl+Z in a reopened box rolled the body back to empty and wiped
-        // the saved text. Text handed to `createDocument` fires no change event, so there is nothing
-        // before the user's own first edit for undo to reach.
+        // In edit mode the stored body is the document's *initial content*, never a change applied to
+        // an empty one. Seeding afterwards — `bodyField.text = editing.body` — is a real document
+        // change, which the platform's undo machinery records into whatever command is open, so the
+        // first Ctrl+Z in a reopened box would roll the body back to empty and wipe the saved text.
+        // Text handed to `createDocument` fires no change event, so there is nothing before the
+        // user's own first edit for undo to reach.
         EditorFactory.getInstance().createDocument(editing?.body ?: ""),
         editor.project,
         FileTypes.PLAIN_TEXT,
@@ -133,29 +132,27 @@ class CommentDraft private constructor(
         // Soft-wrap the plain-text body so long lines fold like the old word-wrapping text area
         // instead of scrolling horizontally.
         addSettingsProvider { innerEditor -> innerEditor.settings.isUseSoftWraps = true }
-        // A multiline EditorTextField draws no border of its own, so on its own it blends into the
-        // panel. Restore the framed "white input inside the gray box" look the old JBScrollPane gave:
-        // a 1px field line plus a little inner padding around the text. The line is Relay's accent
-        // rather than the theme's frame color (design R2), so the one place the user types is the one
-        // place the box is accented — matching the primary action it feeds.
+        // A multiline EditorTextField draws no border of its own and would blend into the panel. This
+        // frames it — a 1px line plus inner padding around the text — in Relay's accent rather than
+        // the theme's frame color, so the one place the user types is the one place the box is
+        // accented, matching the primary action it feeds.
         border = JBUI.Borders.compound(
             JBUI.Borders.customLine(RelayStyle.ACCENT, 1),
             JBUI.Borders.empty(3, 5),
         )
-        // ...and the field must paint that padding itself (design R6). EditorTextField extends
-        // NonOpaquePanel, so without this the 3x5 ring inside the accent line is never painted and the
-        // BOX's surface shows through it — the frame then reads as a rectangle floating around the input
-        // instead of as the input's own frame. Enforcing the editor's own background (rather than
-        // leaving the field's default, which falls back to UIUtil.getTextFieldBackground() — a
-        // different color from the editor background in dark themes) also pushes the same color into
-        // the inner editor when it is created, so the ring and the text area match by construction.
+        // ...and the field must paint that padding itself. EditorTextField extends NonOpaquePanel, so
+        // without this the ring inside the accent line is never painted and the BOX's surface shows
+        // through it — the frame then reads as a rectangle floating around the input rather than as
+        // the input's own frame. Forcing the editor's own background (instead of the field's default,
+        // UIUtil.getTextFieldBackground(), a different color in dark themes) also pushes that color
+        // into the inner editor when it is created, so ring and text area match by construction.
         isOpaque = true
         // Qualified: inside this apply block, a bare `editor` is EditorTextField's own (still-null) one.
         background = this@CommentDraft.editor.colorsScheme.defaultBackground
-        // The shared body font, set explicitly rather than inherited (design D6). EditorTextField
-        // forwards its Swing font to the inner editor by itself, so the mechanism is unchanged — but
-        // relying on that inheritance left the card and the box agreeing only by coincidence, and they
-        // did not: the card's JBTextArea inherits the LaF's *Monospaced* TextArea.font.
+        // The shared body font, set explicitly rather than inherited: EditorTextField forwards its
+        // Swing font to the inner editor by itself, but inheritance would leave the card and the box
+        // agreeing only by coincidence — the card's JBTextArea inherits the LaF's *Monospaced*
+        // TextArea.font.
         font = RelayStyle.bodyFont()
     }
     private val resizeCursor: Cursor = Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
@@ -170,14 +167,12 @@ class CommentDraft private constructor(
     private var draggingEdge: Edge? = null
 
     init {
-        // Edit mode pre-fills the body with the comment's current text so the user revises in place —
-        // done at document construction above, not here, so undo cannot reach past it (D4).
-        // Re-measure the box on every body edit (D2-R). Registered here — once per draft, on the
-        // *retained* field's document, parented to the draft — for the same reason [registerShortcuts]
-        // registers on the wrapper: showBox/hideBox tear down and rebuild the panel and the inner
-        // editor on each edge-drag, so anything hung off those would need re-registering per rebuild.
-        // Parenting to the draft makes the draft a Disposer parent — every teardown must therefore go
-        // through `Disposer.dispose(draft)` (see [create]), never a bare `dispose()`.
+        // Re-measure the box on every body edit. Registered here — once per draft, on the *retained*
+        // field's document, parented to the draft — for the same reason [registerShortcuts] registers
+        // on the wrapper: showBox/hideBox tear down and rebuild the panel and the inner editor on
+        // each edge-drag, so anything hung off those would need re-registering per rebuild.
+        // Parenting to the draft makes the draft a Disposer parent, so every teardown must go through
+        // `Disposer.dispose(draft)` (see [create]), never a bare `dispose()`.
         bodyField.document.addDocumentListener(
             object : DocumentListener {
                 override fun documentChanged(event: DocumentEvent) = scheduleRemeasure()
@@ -187,18 +182,20 @@ class CommentDraft private constructor(
     }
 
     /**
-     * Applies the box's new size on the change that caused it — a body edit. A width change no longer
-     * comes through here at all: the platform re-lays the inlay's row out itself when the visible area
-     * changes. `revalidate()` is the whole mechanism (D2-R): it schedules the layout pass that reaches
-     * the component inlay's container, which reads the panel's *preferred* height and calls
-     * [Inlay.update] itself. Calling [Inlay.update] from here instead would be
-     * inert — `MyRenderer.calcHeightInPixels` reports the renderer's *current* Swing height, so before
-     * that layout pass there is nothing new to report. [EditorTextField] does not revalidate on
-     * `documentChanged`, which is why the pass otherwise waits for an unrelated layout and the box
-     * reads as "resizing after I stop typing". Deferred to the EDT queue so the inner editor has
-     * finished recomputing soft wraps first; that is what makes a long line that *wraps* (no newline
-     * typed) grow the box too. The validity guard mirrors [showBox]'s deferred focus request — the
-     * draft can be submitted, cancelled or drag-hidden in between.
+     * Applies the box's new size on the change that caused it — a body edit. Width never comes
+     * through here: the platform re-lays the inlay's row out itself when the visible area changes.
+     *
+     * `revalidate()` is the whole mechanism: it schedules the layout pass that reaches the component
+     * inlay's container, which reads the panel's *preferred* height and calls [Inlay.update] itself.
+     * Calling [Inlay.update] from here instead would be inert, because the renderer reports its
+     * *current* Swing height and there is nothing new to report before that pass. [EditorTextField]
+     * does not revalidate on `documentChanged`, so without this the pass waits for an unrelated
+     * layout and the box reads as "resizing after I stop typing".
+     *
+     * Deferred to the EDT queue so the inner editor has finished recomputing soft wraps first; that
+     * is what makes a long line which merely *wraps* grow the box too. The validity guard mirrors
+     * [showBox]'s deferred focus request — the draft can be submitted, cancelled or drag-hidden in
+     * between.
      */
     private fun scheduleRemeasure() {
         ApplicationManager.getApplication().invokeLater {
@@ -226,32 +223,31 @@ class CommentDraft private constructor(
 
         val editing = editing
         if (editing == null) {
-            // New comment: capture the anchor seeds and add it (baseline behavior). Both seeds are read
-            // from the SAME live range as the subject above, so a comment's anchoring data always
-            // describes the lines it was actually stored against.
+            // Both seeds are read from the SAME live range as the subject above, so a comment's
+            // anchoring data always describes the lines it was actually stored against.
             val anchorText = document.getText(TextRange(rangeStartOffset(startLine), rangeEndOffset(endLine)))
             val contextHash = Anchoring.contextHash(contextWindow(startLine, endLine))
             service.addComment(subject, body.trim(), anchorText, contextHash)
         } else {
-            // Edit: an in-place update of the same comment (design D1/D4). Both commands publish
-            // `commentUpdated`, and `updatePosition` is a no-op when the range didn't move.
+            // An in-place update of the same comment: both commands publish `commentUpdated`, and
+            // `updatePosition` is a no-op when the range didn't move.
             service.updateBody(editing.id, body.trim())
             service.updatePosition(editing.id, subject)
         }
     }
 
     /**
-     * The line range this draft is sitting on **right now** (design D8) — the range everything a submit
-     * stores is derived from. [highlighter] is the draft's declared position source and absorbs every
-     * document change the box lives through (an edit elsewhere in the file, a refresh from disk), so
-     * reading it here is what makes the stored comment describe the lines the user is actually looking
-     * at rather than the ones that were under the box when it opened.
+     * The line range this draft is sitting on **right now** — the range everything a submit stores is
+     * derived from. [highlighter] is the draft's declared position source and absorbs every document
+     * change the box lives through (an edit elsewhere in the file, a refresh from disk), so reading it
+     * here is what makes the stored comment describe the lines the user is actually looking at rather
+     * than the ones that were under the box when it opened.
      *
-     * The fallback for an invalidated highlighter clamps [start]/[end] into the current document. It is
-     * the one clamp left in Relay, and it is a different animal from the one design D4 removed: it
-     * bounds a comment being *created now* — the alternative being an [IndexOutOfBoundsException] out
-     * of `getLineStartOffset` when the document shrank under an open box — rather than overwriting a
-     * position already recorded in the store.
+     * The fallback for an invalidated highlighter clamps [start]/[end] into the current document. It
+     * is the one clamp in Relay, and it is legitimate where clamping a *stored* position would not
+     * be: it bounds a comment being created **now** — the alternative being an
+     * [IndexOutOfBoundsException] out of `getLineStartOffset` when the document shrank under an open
+     * box — rather than overwriting a position already recorded in the store.
      */
     private fun liveRange(): Pair<Int, Int> {
         val document = editor.document
@@ -288,9 +284,9 @@ class CommentDraft private constructor(
             HighlighterTargetArea.LINES_IN_RANGE,
         )
         highlighter.customRenderer = edgeRenderer
-        // Extend the range highlight into the line-number gutter (D3): the shared colored bar, painted
-        // in the reused wash color so the wash and the bar read as one highlight. Recreated with the
-        // wash on each resize (this whole method runs again), so the bar tracks the range live.
+        // Extend the range highlight into the gutter: the shared bar, painted in the same wash color
+        // so the two read as one highlight. Recreated with the wash on each resize (this whole method
+        // runs again), so the bar tracks the range live.
         highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RelayStyle.RANGE_WASH)
         return highlighter
     }
@@ -298,8 +294,7 @@ class CommentDraft private constructor(
     /**
      * Moves the wash to [newStart]..[newEnd], clamped to the document bounds and to a minimum of one
      * line (the two edges cannot cross). A RangeHighlighter's offsets are immutable, so the wash is
-     * recreated in place; the highlighter keeps rendering throughout, so it never blinks during a
-     * drag (task 4.3).
+     * recreated in place; a highlighter is always rendering throughout, so it never blinks mid-drag.
      */
     private fun resize(newStart: Int, newEnd: Int) {
         val lastLine = editor.document.lineCount - 1
@@ -368,8 +363,8 @@ class CommentDraft private constructor(
     }
 
     /**
-     * On edge-press: enter edge-drag mode, capture the body implicitly (the text area is retained),
-     * and dispose the inlay so the box reserves no space while the code is sized (D1). The wash stays.
+     * On edge-press: enter edge-drag mode, capture the body implicitly (the body field is retained),
+     * and dispose the inlay so the box reserves no space while the code is sized. The wash stays.
      */
     private fun beginDrag(edge: Edge) {
         draggingEdge = edge
@@ -378,7 +373,7 @@ class CommentDraft private constructor(
         repaintEdges()
     }
 
-    /** On release: leave edge-drag mode and rebuild the box under the range's new bottom line (D1). */
+    /** On release: leave edge-drag mode and rebuild the box under the range's new bottom line. */
     private fun endDrag() {
         draggingEdge = null
         showBox()
@@ -387,9 +382,9 @@ class CommentDraft private constructor(
     }
 
     /**
-     * Mouse moved (no button): show the resize cursor + brighten the edge when the pointer is within
-     * an edge grab zone. Returns true when an edge is hoverable, so the caller suppresses the hover
-     * "+" so the two affordances don't compete (task 2.3).
+     * Mouse moved (no button): show the resize cursor and brighten the edge when the pointer is
+     * within an edge grab zone. Returns true when an edge is hoverable, so the caller suppresses the
+     * hover "+" and the two affordances do not compete.
      */
     internal fun onMouseMoved(y: Int, editingArea: Boolean): Boolean {
         if (draggingEdge != null) return true
@@ -400,8 +395,8 @@ class CommentDraft private constructor(
 
     /**
      * Mouse pressed: if it lands in an edge grab zone, claim the gesture (start an edge-drag) so the
-     * caller can consume() the event and the editor never begins a text selection (D2). Returns true
-     * when the gesture was claimed.
+     * caller can consume() the event and the editor never begins a text selection. Returns true when
+     * the gesture was claimed.
      */
     internal fun onMousePressed(y: Int, editingArea: Boolean): Boolean {
         if (draggingEdge != null || !editingArea) return false
@@ -470,21 +465,21 @@ class CommentDraft private constructor(
     /**
      * (Re)builds the comment box as a block inlay under the range's current bottom line and returns
      * whether it succeeded. Called once on open and again on each edge-drag release; the retained
-     * [textArea] carries the body across, so the rebuilt box shows the previously typed text. Focus
+     * [bodyField] carries the body across, so the rebuilt box shows the previously typed text. Focus
      * is re-requested through the deferred [IdeFocusManager] path so the box — not the editor —
      * takes the keyboard.
      */
     private fun showBox(): Boolean {
-        // One short label in BOTH modes (design R3): "Comment" — GitHub's primary review-comment verb —
-        // names what the button produces, which is true whether the comment is new or revised. The old
-        // "Save" when editing named the storage operation instead and made one control look like two.
+        // One label in BOTH modes: "Comment" names what the button produces, which is true whether
+        // the comment is new or revised. "Save" when editing would name the storage operation instead
+        // and make one control look like two.
         val addButton = primaryButton("Comment")
         val cancelButton = secondaryButton("Cancel")
         val panel = buildPanel(editor, bodyField, addButton, cancelButton)
 
-        // `fullWidth` has no counterpart here: the alignment IS that concept, and FIT_VIEWPORT_WIDTH
-        // additionally re-lays the row out on every visible-area change, so following the editor needs
-        // no registration of Relay's own — and nothing to detach in [hideBox].
+        // FIT_VIEWPORT_WIDTH is what makes the row span the viewport AND re-lay itself out on every
+        // visible-area change, so following the editor needs no registration of Relay's own — and
+        // nothing to detach in [hideBox].
         val properties = InlayProperties()
             .relatesToPrecedingText(true)
             .showAbove(false)
@@ -541,11 +536,9 @@ class CommentDraft private constructor(
         // Lines of surrounding code hashed into the anchor seed on each side of the range.
         private const val CONTEXT_LINES = 3
 
-        // Minimum visible rows for the body field (comment-box-sizing). Lowered from the old 4-row
-        // floor to a compact 2 so an empty/short box is short — leaving more code visible — and the
-        // field's own preferred-size growth takes over once the body wraps past two rows. The exact
-        // floor (1 vs 2) is a visual taste-call to settle in a running IDE; 2 keeps a hint of room to
-        // type without the old bulk.
+        // Minimum visible rows for the body field: enough to read as somewhere to type, short enough
+        // to leave the code visible. The field's own preferred-size growth takes over once the body
+        // wraps past this.
         private const val BODY_ROWS = 2
 
         // Half-thickness (unscaled dp) of the grab band on each side of an edge's Y for hit-testing.
@@ -567,8 +560,8 @@ class CommentDraft private constructor(
 
         /**
          * The border counterpart of the two above, read by `DarculaButtonPainter.getBorderPaint` as a
-         * `Color` and returned for an enabled button ahead of its default/plain-button branches. Without
-         * it the painter frames the accent fill in the *plain* button's gray outline (design R7).
+         * `Color` and returned for an enabled button ahead of its default/plain-button branches.
+         * Without it the painter frames the accent fill in the *plain* button's gray outline.
          */
         private const val BUTTON_BORDER_PROPERTY = "JButton.borderColor"
 
@@ -576,9 +569,9 @@ class CommentDraft private constructor(
         private const val ACTION_GAP_DP = 8
 
         /**
-         * The box's primary action: one solid accent shape — fill, outline and a label color legible on
-         * it (R3/R7). The outline is set to the fill rather than left to the painter, which would
-         * otherwise ring the accent in the theme's plain-button gray.
+         * The box's primary action: one solid accent shape — fill, outline and a label color legible
+         * on it. The outline is set to the fill rather than left to the painter, which would otherwise
+         * ring the accent in the theme's plain-button gray.
          */
         private fun primaryButton(text: String): JButton = plainButton(text).apply {
             putClientProperty(BUTTON_FILL_PROPERTY, RelayStyle.ACCENT_FILL)
@@ -590,10 +583,10 @@ class CommentDraft private constructor(
         private fun secondaryButton(text: String): JButton = plainButton(text)
 
         /**
-         * A button that paints *only* itself. A `JButton` is opaque by default while the Darcula-family
-         * UI paints a **rounded** shape inside its bounds, so `UIManager`'s flat `Button.background`
-         * shows through at the four corners — the stray gray patch the review reported around both
-         * actions. Non-opaque, the box's own fill shows through there instead (R3).
+         * A button that paints *only* itself. A `JButton` is opaque by default while the
+         * Darcula-family UI paints a **rounded** shape inside its bounds, so `UIManager`'s flat
+         * `Button.background` shows through at the four corners as a stray gray patch. Non-opaque,
+         * the box's own fill shows through there instead.
          */
         private fun plainButton(text: String): JButton = JButton(text).apply { isOpaque = false }
 
@@ -606,9 +599,9 @@ class CommentDraft private constructor(
             create(editor, startLine, endLine, editing = null, onClose)
 
         /**
-         * Opens a draft to **edit** [comment] (design D1): the same box, seeded with the comment's
-         * body and opened over its current line range, resubmitting as an in-place update. Returns
-         * null if the editor can't host an inline component or the comment has no line anchor.
+         * Opens a draft to **edit** [comment]: the same box, seeded with the comment's body and
+         * opened over its current line range, resubmitting as an in-place update. Returns null if
+         * the editor can't host an inline component or the comment has no line anchor.
          */
         fun openForEdit(editor: Editor, comment: ReviewComment, onClose: () -> Unit): CommentDraft? {
             val (start, end) = when (val subject = comment.subject) {
@@ -653,23 +646,22 @@ class CommentDraft private constructor(
             // Built first: the box measures its body at the width this row will allot it, so the row
             // has to exist before the content that asks it.
             val row = ReadingWidthRow(editor)
-            // hgap 0, with the gap carried by an explicit strut between the two actions (design R8):
-            // FlowLayout reserves its hgap at BOTH ends of the row, so a non-zero hgap inset the whole
-            // row from the panel's trailing edge and the actions no longer lined up with the body
-            // field's frame above them. The ~4px that still separates a button's painted shape from
-            // that edge is the platform's own focus-ring inset, and is left alone.
+            // hgap 0, with the gap carried by an explicit strut between the two actions: FlowLayout
+            // reserves its hgap at BOTH ends of the row, so a non-zero hgap insets the whole row from
+            // the panel's trailing edge and the actions stop lining up with the body field's frame
+            // above them. The ~4px that still separates a button's painted shape from that edge is
+            // the platform's own focus-ring inset, and is left alone.
             val buttons = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
                 isOpaque = false
                 add(cancelButton)
                 add(Box.createHorizontalStrut(JBUI.scale(ACTION_GAP_DP)))
                 add(addButton)
             }
-            // Horizontal size (comment-box-sizing feedback): the box fills the width its
-            // [ReadingWidthRow] allots it — the same row the card is built into, so the two are
-            // identical by construction rather than by two similar calls — instead of shrinking to the
-            // button row. The box still grows *taller* with the body (height stays super-driven); only
-            // width is pinned, and it is pinned to an input pushed down from the row, never to the
-            // box's own width (design D1).
+            // The box fills the width its ReadingWidthRow allots it — the same row the card is built
+            // into, so the two are identical by construction rather than by two similar calls —
+            // instead of shrinking to its button row. Height stays super-driven, so the box still
+            // grows taller with the body; only width is pinned, and to an input pushed down from the
+            // row, never to the box's own width.
             val content = object : JPanel(BorderLayout(0, JBUI.scale(6))), UiDataProvider {
                 override fun getPreferredSize(): Dimension {
                     val size = super.getPreferredSize()
@@ -678,24 +670,23 @@ class CommentDraft private constructor(
                 }
 
                 /**
-                 * Scopes file-editor actions — undo/redo above all — to the box (D1-R). The box is a
-                 * block inlay *inside* the host editor's content component, so the action system's
-                 * walk up the Swing hierarchy reaches the host file's `EditorCompositePanel` and
-                 * resolves [PlatformCoreDataKeys.FILE_EDITOR] to the *source file's* editor — which is
-                 * exactly what `UndoRedoAction` undoes against, so Ctrl+Z while typing a comment
-                 * silently edited the user's code. This panel is the nearer provider, so naming the
-                 * box's *own* [TextEditor] here shadows the host file's — and that wrapper is what the
+                 * Scopes file-editor actions — undo/redo above all — to the box. The box is a block
+                 * inlay *inside* the host editor's content component, so the action system's walk up
+                 * the Swing hierarchy reaches the host file's `EditorCompositePanel` and resolves
+                 * [PlatformCoreDataKeys.FILE_EDITOR] to the *source file's* editor — which is exactly
+                 * what `UndoRedoAction` undoes against, so Ctrl+Z while typing a comment would
+                 * silently edit the user's code. This panel is the nearer provider, so naming the
+                 * box's *own* [TextEditor] here shadows the host file's; that wrapper is what the
                  * platform itself derives for an [EditorTextField] in a dialog, where in-box undo
                  * already works. `EDITOR` is deliberately not set ([EditorTextField] already supplies
-                 * it), and the body field is never marked supplementary: that flag claims the body is
-                 * not a real editing surface, which is false here.
+                 * it), and the body field is never marked supplementary: that flag would claim the
+                 * body is not a real editing surface, which is false here.
                  *
-                 * The editor-less branch masks rather than falling through to the host file, but it is
-                 * a tripwire on an invariant, not a fallback — a null key is *not* safe either (design
-                 * D1-R / Risks: it routes undo to the project's global stack). The action system
-                 * snapshots from the focus owner upward, so in practice focus is inside the box and
-                 * the inner editor exists — but any caller may hand this panel to `DataManager`
-                 * directly, so the branch is kept.
+                 * The editor-less branch masks rather than falling through to the host file. It is a
+                 * tripwire on an invariant, not a fallback — a null key is not safe either, since it
+                 * routes undo to the project's global stack. The action system snapshots from the
+                 * focus owner upward, so in practice focus is inside the box and the inner editor
+                 * exists, but any caller may hand this panel to `DataManager` directly.
                  */
                 override fun uiDataSnapshot(sink: DataSink) {
                     val inner = bodyField.editor
@@ -704,10 +695,10 @@ class CommentDraft private constructor(
                 }
             }.apply {
                 isOpaque = true
-                // The box is the card's *editing state*, not a different kind of panel (design R2):
-                // same UI-surface fill, same 1px outline, same 8x12 padding, and — like the card — no
-                // accent edge of its own. The two occupy the same screen position for the same comment
-                // (the card is suppressed while its box is open), so any difference between them would
+                // The box is the card's *editing state*, not a different kind of panel: same
+                // UI-surface fill, same 1px outline, same padding, and — like the card — no accent
+                // edge of its own. The two occupy the same screen position for the same comment (the
+                // card is suppressed while its box is open), so any difference between them would
                 // read as the object changing identity when the user clicks Edit.
                 background = RelayStyle.surface()
                 border = JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border(), 1), JBUI.Borders.empty(8, 12))
@@ -717,11 +708,11 @@ class CommentDraft private constructor(
                 // so it is embedded directly rather than in a JBScrollPane.
                 add(bodyField, BorderLayout.CENTER)
                 add(buttons, BorderLayout.SOUTH)
-                // Without a mouse listener the panel's padding/background isn't an event target, so
-                // Swing retargets clicks and drags over it to the editor underneath — which then
+                // Without a mouse listener the panel's padding and background are not event targets,
+                // so Swing retargets clicks and drags over them to the editor underneath, which then
                 // selects code. Listening here makes the panel swallow those events, and a click on
-                // the box chrome moves focus into the body field (D3), which forwards to its inner
-                // editor and returns editing to the box.
+                // the box chrome moves focus into the body field, which forwards to its inner editor
+                // and returns editing to the box.
                 addMouseListener(object : MouseAdapter() {
                     override fun mousePressed(e: MouseEvent) {
                         bodyField.requestFocusInWindow()
@@ -739,21 +730,20 @@ class CommentDraft private constructor(
             submit: () -> Unit,
             cancel: () -> Unit,
         ) {
-            // The inner editor now owns plain-text editing natively, including newline-on-Enter, so
-            // no Enter/Shift+Enter shim is needed. Ctrl+Enter/Cmd+Enter (submit) and Esc (cancel) are
-            // not plain-text edits, so they stay as component-scoped actions (D2). They are registered
-            // on the EditorTextField wrapper — which is retained across rebuilds and is the Swing
-            // ancestor of the focused inner-editor component — so IdeKeyEventDispatcher finds them
-            // ahead of any keymap/editor action while the box is focused. Registering on the wrapper
-            // (rather than the inner editor's contentComponent, which is torn down and recreated on
-            // every add/remove) keeps this a single once-per-draft registration that survives the
-            // edge-drag rebuild (resolves design.md's open question).
+            // The inner editor owns plain-text editing natively, including newline-on-Enter, so no
+            // Enter/Shift+Enter shim is needed. Ctrl+Enter/Cmd+Enter (submit) and Esc (cancel) are
+            // not plain-text edits, so they stay component-scoped actions. They are registered on the
+            // EditorTextField wrapper — retained across rebuilds, and the Swing ancestor of the
+            // focused inner-editor component — so IdeKeyEventDispatcher finds them ahead of any
+            // keymap or editor action while the box is focused. The inner editor's contentComponent
+            // would be the wrong host: it is torn down and recreated on every add/remove, where the
+            // wrapper keeps this a single once-per-draft registration that survives an edge-drag.
             fun anAction(run: () -> Unit) = object : AnAction() {
                 override fun actionPerformed(e: AnActionEvent) = run()
             }
             fun shortcuts(vararg keyStrokes: KeyStroke) =
                 CustomShortcutSet(*keyStrokes.map { KeyboardShortcut(it, null) }.toTypedArray())
-            // Ctrl/Cmd+Enter submits (like a PR review box).
+            // Ctrl/Cmd+Enter submits, like a pull-request review box.
             anAction(submit).registerCustomShortcutSet(
                 shortcuts(
                     KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),

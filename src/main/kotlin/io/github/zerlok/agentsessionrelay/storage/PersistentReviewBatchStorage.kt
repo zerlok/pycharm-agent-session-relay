@@ -10,18 +10,18 @@ import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 
 /**
- * The durable backing for the pending review batch (design D1–D4): a [ReviewBatchStorage] whose
- * records also persist via [PersistentStateComponent].
+ * The durable backing for the pending review batch: a [ReviewBatchStorage] whose records also
+ * persist via [PersistentStateComponent].
  *
  * Storage config is read only from `@State`: a bare `@Storage` on the class is inert (valid only
  * nested in `@State.storages`), so without `@State` nothing would ever be written. It lives in
  * `workspace.xml` because the batch is a private, per-user draft, not a VCS artifact.
  *
- * The logic layer obtains this as a service, never `new`-ing it: `loadState`/`getState` fire only when
- * the platform owns the instance ([InMemoryReviewBatchStorage] remains the constructible test backing).
+ * Callers obtain this as a service, never `new`-ing it: `loadState`/`getState` fire only when the
+ * platform owns the instance ([InMemoryReviewBatchStorage] remains the constructible backing).
  *
  * `getStateRequiresEdt = true` pins the otherwise-background [getState] to the EDT, where all batch
- * mutations already run (ARCHITECTURE §5.3), so a save can never iterate [comments] mid-mutation.
+ * mutations already run, so a save can never iterate [comments] mid-mutation.
  *
  * A runtime reload of `workspace.xml` (external edit) re-runs [loadState] with no listener event, so
  * open views refresh only on the next store change — accepted: the target is restore-on-restart.
@@ -51,7 +51,7 @@ class PersistentReviewBatchStorage :
     }
 
     override fun loadState(state: State) {
-        // No file resolution or re-anchoring here: loadState runs pre-index (design D3), and degenerate
+        // No file resolution or re-anchoring here: loadState runs before indexing, and degenerate
         // DTOs fall back safely in toDomain rather than aborting the whole restore.
         comments.clear()
         for (dto in state.comments) {
@@ -60,7 +60,7 @@ class PersistentReviewBatchStorage :
         }
     }
 
-    // -- ReviewBatchStorage CRUD (semantics identical to InMemoryReviewBatchStorage) --
+    // -- ReviewBatchStorage CRUD: semantics identical to InMemoryReviewBatchStorage --
 
     override fun all(): List<ReviewComment> = comments.values.toList()
 

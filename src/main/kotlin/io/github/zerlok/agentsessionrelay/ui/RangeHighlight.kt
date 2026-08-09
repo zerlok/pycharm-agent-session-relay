@@ -10,17 +10,15 @@ import com.intellij.util.ui.JBUI
 import java.awt.Color
 
 /**
- * The one shared "range + gutter" highlight visual used by the two surfaces that reveal a commented
- * line range (design D3): the draft's live wash ([CommentDraft]) and the transient stored-comment
- * hover highlight ([EditorReviewOverlay]). It pairs the familiar code-area wash (a `backgroundColor`
- * over [HighlighterTargetArea.LINES_IN_RANGE]) with a colored bar painted in the left gutter — the
- * same [LineMarkerRenderer] hook VCS change bars use — so the commented lines are identifiable from
- * the line-number gutter as well as the code, and the draft and stored-hover highlights read as one
- * highlight by construction (both use [RelayStyle.RANGE_WASH]).
+ * The one shared "range + gutter" highlight used by the two surfaces that reveal a commented line
+ * range: the draft's live wash ([CommentDraft]) and the transient stored-comment hover highlight
+ * ([EditorReviewOverlay]). It pairs the code-area wash (a `backgroundColor` over
+ * [HighlighterTargetArea.LINES_IN_RANGE]) with a colored bar painted in the left gutter — the same
+ * [LineMarkerRenderer] hook VCS change bars use — so a commented range is identifiable from the
+ * gutter as well as the code, and the two washes read as one highlight by construction.
  *
- * The colors themselves live in [RelayStyle], not here (design R4): the resting stored-comment bar is
- * painted in [RelayStyle.ACCENT] and the two hover/draft washes in [RelayStyle.RANGE_WASH]. This class
- * owns the *mechanism* — the geometry and the markup plumbing — and takes the color as a parameter.
+ * The colors live in [RelayStyle], not here; this class owns the *mechanism* — the geometry and the
+ * markup plumbing — and takes the color as a parameter.
  */
 class RangeHighlight private constructor(
     private val editor: Editor,
@@ -33,15 +31,14 @@ class RangeHighlight private constructor(
     }
 
     companion object {
-        // Width (unscaled dp) of the gutter bar painted beside the line numbers — a VCS-change-bar-sized
-        // stripe: wide enough to read at a glance, narrow enough not to crowd the numbers (D3).
+        // Width (unscaled dp) of the gutter bar painted beside the line numbers — a
+        // VCS-change-bar-sized stripe: readable at a glance, narrow enough not to crowd the numbers.
         private const val BAR_WIDTH_DP = 3
 
         /**
          * A [LineMarkerRenderer] that fills a [color] bar in the left gutter for its marker's line
-         * range. Shared so the draft ([CommentDraft.createHighlighter]) can attach the same bar to its
-         * own wash highlighter and [create] can build a standalone range highlight — keeping the two
-         * surfaces' gutter signal identical.
+         * range. Shared so the draft can attach the same bar to its own wash highlighter and [create]
+         * can build a standalone range highlight — keeping every surface's gutter signal identical.
          */
         fun gutterBar(color: Color): LineMarkerRenderer = LineMarkerRenderer { _, g, r ->
             g.color = color

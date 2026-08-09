@@ -21,27 +21,26 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
 /**
  * Project-scoped owner of the per-editor [EditorReviewOverlay] **and** of the per-document
- * [DocumentReviewMarkers] (ARCHITECTURE §3.3). It listens on the application-wide
- * [EditorFactory] and creates them on `editorCreated`, frees them on `editorReleased`, and seeds from
- * [EditorFactory.getAllEditors] at startup (that event fires only for editors opened afterward). It
- * handles only editors whose `project` matches, whose `editorKind == MAIN_EDITOR`, and whose document
- * has a file.
+ * [DocumentReviewMarkers] (ARCHITECTURE.md — "View objects and their lifetimes"). It listens on the
+ * application-wide [EditorFactory], creates them on `editorCreated`, frees them on `editorReleased`,
+ * and seeds from [EditorFactory.getAllEditors] at startup (that event fires only for editors opened
+ * afterwards). It handles only editors whose `project` matches, whose `editorKind == MAIN_EDITOR`,
+ * and whose document has a file.
  *
- * They have different scopes and therefore different lifetimes: an overlay is created and disposed
- * with its editor, while a document's markers exist while **any** qualifying
- * editor shows that document — created with the first, disposed after the last one's close flush
- * (design D2). The ref-count is the set of live overlays itself, so there is no second counter to fall
- * out of step, and all are driven entirely from this one `editorCreated`/`editorReleased` path — no
- * extra platform listener to leak.
+ * The two have different scopes and therefore different lifetimes: an overlay lives and dies with
+ * its editor, while a document's markers exist while **any** qualifying editor shows that document —
+ * created with the first, disposed after the last one's close flush. The ref-count is the set of
+ * live overlays itself, so there is no second counter to fall out of step, and both are driven
+ * entirely from this one `editorCreated`/`editorReleased` path — no extra platform listener to leak.
  *
- * All are [Disposable]s parented to **this service** (never to the editor/project directly), so they
- * also release on dynamic plugin unload; `editorReleased` disposes them eagerly.
+ * All are [Disposable]s parented to **this service** (never to the editor or project directly), so
+ * they also release on dynamic plugin unload; `editorReleased` disposes them eagerly.
  *
- * It is also the position-sync-point owner (ARCHITECTURE §3.2): besides the aggregate
- * [currentPositions] the delivery stage flushes at submit time, it flushes live-marker positions into
- * the store at the two discrete in-IDE sync points — **editor close** ([release]) and **document save**
- * ([syncPositions], wired to [FileDocumentManagerListener.beforeDocumentSaving]) — so a persisted
- * comment's line range matches what the user sees without a per-keystroke write.
+ * It is also the in-IDE position-sync-point owner: besides the aggregate [currentPositions] the
+ * delivery stage flushes at submit time, it flushes live-marker positions into the store at
+ * **editor close** ([release]) and **document save** ([syncPositions], wired to
+ * [FileDocumentManagerListener.beforeDocumentSaving]) — so a persisted comment's line range matches
+ * what the user sees without a per-keystroke write.
  *
  * Anchor *verification* is deliberately not here. It reads file content rather than markers, so it
  * covers a comment whose file is closed, and it lives in
@@ -64,10 +63,10 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
             override fun editorReleased(event: EditorFactoryEvent) = release(event.editor)
         }, this)
 
-        // Document save is a position-sync point (ARCHITECTURE §3.2): flush the saved document's
-        // live-marker positions into the store just before the write. Subscribed on the application
-        // bus (saves are an application-level event) and parented to this service, mirroring how the
-        // EditorFactoryListener above is parented, so it disconnects on dispose / plugin unload.
+        // Document save is a position-sync point: flush the saved document's live-marker positions
+        // into the store just before the write. Subscribed on the application bus (saves are an
+        // application-level event) and parented to this service, like the EditorFactoryListener
+        // above, so it disconnects on dispose and on plugin unload.
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(FileDocumentManagerListener.TOPIC, object : FileDocumentManagerListener {
                 override fun beforeDocumentSaving(document: Document) = syncPositions(document)
@@ -91,10 +90,9 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
     }
 
     /**
-     * The aggregated position-sync seam (ARCHITECTURE §3.2): every open document's comments at their
-     * CURRENT line ranges, read off the live markers. The delivery stage flushes these into the
-     * store (via [io.github.zerlok.agentsessionrelay.logic.ReviewBatchService.updatePosition]) at
-     * submit time, so the exported ranges are current without a per-keystroke write.
+     * The aggregated position-sync seam: every open document's comments at their CURRENT line
+     * ranges, read off the live markers. The delivery stage flushes these into the store at submit
+     * time, so the exported ranges are current without a per-keystroke write.
      */
     fun currentPositions(): Map<CommentId, Subject> {
         val result = HashMap<CommentId, Subject>()
@@ -103,10 +101,10 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
     }
 
     /**
-     * Document-save position-sync point (ARCHITECTURE §3.2): flush the live-marker positions of
-     * [document] into the store, so the persisted line ranges match what the user sees at save time —
-     * not their authoring-time lines. Scoped to the saved document (an unrelated save leaves other
-     * files' markers untouched).
+     * Document-save position-sync point: flush the live-marker positions of [document] into the
+     * store, so the persisted line ranges match what the user sees at save time rather than their
+     * authoring-time lines. Scoped to the saved document, so an unrelated save leaves other files'
+     * markers untouched.
      */
     private fun syncPositions(document: Document) {
         markers[document]?.let { flush(it) }
@@ -131,9 +129,9 @@ class EditorReviewOverlayService(private val project: Project) : Disposable {
     private fun release(editor: Editor) {
         val overlay = overlays.remove(editor) ?: return
         val document = overlay.document
-        // Editor close is a position-sync point (ARCHITECTURE §3.2: "export, save, editor close"):
-        // flush the last-known live-marker positions into the store before the markers go away, so a
-        // comment edited then closed still exports its current line — not its authoring-time line.
+        // Editor close is a position-sync point: flush the last-known live-marker positions into the
+        // store before the markers go away, so a comment edited then closed still exports its
+        // current line rather than its authoring-time line.
         // Deliberately BEFORE the markers may be disposed below, and unconditional: closing one split
         // of two leaves the markers alive, and the flush is idempotent anyway.
         markers[document]?.let { flush(it) }

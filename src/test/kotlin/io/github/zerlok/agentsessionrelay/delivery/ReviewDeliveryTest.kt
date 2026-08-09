@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * Unit tests for the pure [ReviewDelivery] decision (empty-vs-nonempty + the exact written string).
- * No editor/VFS/filesystem needed — it is a pure function of the batch (design D5).
+ * No editor/VFS/filesystem needed — it is a pure function of the batch.
  */
 class ReviewDeliveryTest {
 

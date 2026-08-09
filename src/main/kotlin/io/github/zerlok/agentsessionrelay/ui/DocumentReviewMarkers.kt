@@ -19,18 +19,18 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
 /**
- * A comment's live anchor, read from its marker in **one** pass (design D3): where the marker is now
- * ([subject]) and the text it spans now ([text]). The two are deliberately produced together — asking
- * for them separately lets a document change land in between, and then the anchor check compares one
- * range's text against another range's position, which is precisely the confident-but-wrong answer
- * anchor validation exists to prevent.
+ * A comment's live anchor, read from its marker in **one** pass: where the marker is now ([subject])
+ * and the text it spans now ([text]). The two are deliberately produced together — asking for them
+ * separately lets a document change land in between, and then the anchor check compares one range's
+ * text against another range's position, which is precisely the confident-but-wrong answer anchor
+ * validation exists to prevent.
  */
 class LiveAnchor(val subject: Subject, val text: String)
 
 /**
- * Owner of the stored-comment position markers for **one [Document]** (ARCHITECTURE §3.3, design D2):
- * one [RangeHighlighter] per stored comment whose subject points at this document's file, keyed by
- * [CommentId], written into the document-scoped [DocumentMarkupModel].
+ * Owner of the stored-comment position markers for **one [Document]** (ARCHITECTURE.md — "View
+ * objects and their lifetimes"): one [RangeHighlighter] per stored comment whose subject points at
+ * this document's file, keyed by [CommentId], written into the document-scoped [DocumentMarkupModel].
  *
  * Ownership is per-document rather than per-editor because the markup these markers live in is
  * per-document: a file shown in two splits has one markup model, so a per-editor owner painted the
@@ -47,9 +47,9 @@ class LiveAnchor(val subject: Subject, val text: String)
  * event (add new, dispose removed, leave the rest).
  *
  * A comment whose recorded range does not fit this document gets **no marker** and is marked
- * [CommentStatus.ORPHANED] (design D4) — never clamped into range. Because it then has no entry in
- * [liveState], no sync point can flush a substitute position over its recorded one; the defect is
- * closed structurally rather than by a guard a later edit could drop.
+ * [CommentStatus.ORPHANED] — never clamped into range. Because it then has no entry in [liveState],
+ * no sync point can flush a substitute position over its recorded one; that is closed structurally
+ * rather than by a guard a later edit could drop.
  *
  * Lifecycle is owned by [EditorReviewOverlayService], which creates this on the first qualifying
  * editor for the document and disposes it (after the close flush) when the last one is released.
@@ -66,9 +66,9 @@ class DocumentReviewMarkers(
     private val markers = HashMap<CommentId, RangeHighlighter>()
 
     // The subject each marker was built from. A marker tracks in-IDE edits live (its offsets drift),
-    // but the store subject it was seeded from does not — so an explicit store subject change (the user
-    // re-editing the range) is detected by comparing the stored comment against this recorded value,
-    // never against the marker's live offsets, which would fight the live-position-source role (§3.2).
+    // but the store subject it was seeded from does not — so an explicit store subject change (the
+    // user re-editing the range) is detected by comparing the stored comment against this recorded
+    // value, never against the marker's live offsets, which would fight its live-position role.
     private val markerSubjects = HashMap<CommentId, Subject>()
 
     init {
@@ -87,9 +87,9 @@ class DocumentReviewMarkers(
     override fun batchCleared() = reconcile()
 
     /**
-     * Every owned comment's live anchor — position **and** current text — read off each valid marker in
-     * a single pass (design D3). Invalid markers, and comments with no marker at all (orphaned, or in
-     * another file), have no entry: absence means "no live anchor", never "moved to somewhere else".
+     * Every owned comment's live anchor — position **and** current text — read off each valid marker
+     * in a single pass. Invalid markers, and comments with no marker at all (orphaned, or in another
+     * file), have no entry: absence means "no live anchor", never "moved somewhere else".
      */
     fun liveState(): Map<CommentId, LiveAnchor> {
         val url = fileUrl ?: return emptyMap()
@@ -111,10 +111,10 @@ class DocumentReviewMarkers(
     }
 
     /**
-     * The position-sync projection of [liveState] the save, editor-close, and export sync points flush
-     * into the store (ARCHITECTURE §3.2): each owned comment's CURRENT line range as a fresh [Subject].
-     * A projection rather than its own marker read, so a flushed position can never disagree with the
-     * anchor text validated beside it.
+     * The projection of [liveState] the save, editor-close, and export sync points flush into the
+     * store: each owned comment's CURRENT line range as a fresh [Subject]. A projection rather than
+     * its own marker read, so a flushed position can never disagree with the anchor text validated
+     * beside it.
      */
     fun currentPositions(): Map<CommentId, Subject> = liveState().mapValues { (_, anchor) -> anchor.subject }
 
@@ -146,7 +146,7 @@ class DocumentReviewMarkers(
     }
 
     /**
-     * Places [comment]'s marker, or orphans it when its recorded range does not exist here (design D4).
+     * Places [comment]'s marker, or orphans it when its recorded range does not exist here.
      *
      * **Both status writes happen after this map is in its final state**, because a status change
      * publishes `commentUpdated` and so re-enters [reconcile] synchronously. Writing the status first
@@ -168,14 +168,12 @@ class DocumentReviewMarkers(
             null,
             HighlighterTargetArea.LINES_IN_RANGE,
         )
-        // No gutter *icon* and no text attributes, so nothing washes the code at rest. What the marker
-        // does carry is the resting gutter bar: it is both the invisible live position source (and the
-        // source for the card-hover range highlight) AND the at-rest "these lines have a comment"
-        // signal. Riding the marker that is already kept live means the bar drifts with in-IDE edits for
-        // free and needs no reconcile path of its own. This bar is the ONLY place a commented range
-        // wears the accent — the card deliberately carries no accent edge, so there is one mark per
-        // range rather than two parallel lines. `StoredCommentGutterIconRenderer` is kept unwired in the
-        // tree for the deferred hide-comments change to re-attach here.
+        // No gutter *icon* and no text attributes, so nothing washes the code at rest. The marker
+        // does carry the resting gutter bar, making it both the live position source and the "these
+        // lines have a comment" signal: riding the marker that is already kept live means the bar
+        // drifts with in-IDE edits for free and needs no reconcile path of its own. This bar is the
+        // ONLY place a commented range wears the accent — the card deliberately carries none, so
+        // there is one mark per range rather than two parallel lines.
         highlighter.lineMarkerRenderer = RangeHighlight.gutterBar(RelayStyle.ACCENT)
         markers[comment.id] = highlighter
         markerSubjects[comment.id] = comment.subject

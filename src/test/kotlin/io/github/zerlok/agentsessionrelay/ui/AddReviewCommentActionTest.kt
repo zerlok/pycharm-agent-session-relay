@@ -3,7 +3,7 @@ package io.github.zerlok.agentsessionrelay.ui
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 /**
- * Covers [AddReviewCommentAction]'s target-range resolution (design D2): it feeds the **caret** line
+ * Covers [AddReviewCommentAction]'s target-range resolution: it feeds the **caret** line
  * to the one shared rule, `controller.rangeFor(editor, editor.caretModel.logicalPosition.line)` —
  * reproduced here against a live editor fixture. Since a caret always rests at one end of its own
  * selection, that line is inside the selection's span whenever a selection exists, which is what keeps

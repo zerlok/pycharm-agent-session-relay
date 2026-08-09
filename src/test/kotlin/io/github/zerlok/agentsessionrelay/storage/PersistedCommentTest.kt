@@ -8,8 +8,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Unit tests for the domain↔DTO mapper (tasks 1.1–1.3, 4.1, 4.3). Pure Kotlin — no platform fixture:
- * the mapper is a storage-boundary translation over inert records (ARCHITECTURE §3.1, §3.2).
+ * Unit tests for the domain↔DTO mapper. Pure Kotlin — no platform fixture:
+ * the mapper is a storage-boundary translation over inert records.
  */
 class PersistedCommentTest {
 
@@ -18,7 +18,7 @@ class PersistedCommentTest {
         assertEquals(comment, comment.toPersisted().toDomain())
     }
 
-    // -- Every Subject variant round-trips (task 4.1) --
+    // -- Every Subject variant round-trips --
 
     @Test
     fun `Line subject round-trips`() {
@@ -47,7 +47,7 @@ class PersistedCommentTest {
         assertRoundTrips(ReviewComment(CommentId("5"), Subject.Project, "b"))
     }
 
-    // -- Anchoring fields, populated and empty (task 4.1) --
+    // -- Anchoring fields, populated and empty --
 
     @Test
     fun `populated anchoring fields round-trip`() {
@@ -83,7 +83,7 @@ class PersistedCommentTest {
         }
     }
 
-    // -- Degenerate input (task 4.3) --
+    // -- Degenerate input --
 
     @Test
     fun `unknown subjectKind maps to a safe Project fallback without throwing`() {

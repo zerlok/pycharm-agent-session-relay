@@ -122,7 +122,7 @@ class CommentDraftTest : BasePlatformTestCase() {
      * focus is inside the box, which implies the inner editor exists) but which is reachable here
      * because nothing is shown. It masks with the platform's `EXPLICIT_NULL` rather than falling
      * through to the host file's editor — a tripwire, not a fallback: a null key is not safe either
-     * (design D1-R / Risks). Asserted so the branch's *intent* is pinned, not as evidence about undo.
+     *. Asserted so the branch's *intent* is pinned, not as evidence about undo.
      */
     fun `test the box masks the file editor when it has no inner editor`() {
         controller.open(myFixture.editor, 1, 1)
@@ -255,7 +255,7 @@ class CommentDraftTest : BasePlatformTestCase() {
         assertEmpty(blockInlays())
     }
 
-    // -- Submit stores the box's LIVE range (trustworthy-comment-anchors, design D8) --
+    // -- Submit stores the box's LIVE range --
 
     /**
      * The box's range highlight is its declared position source, so what it absorbs while the box is

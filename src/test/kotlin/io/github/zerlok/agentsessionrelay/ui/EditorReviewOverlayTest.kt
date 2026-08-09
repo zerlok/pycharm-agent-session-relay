@@ -21,8 +21,8 @@ import java.awt.image.BufferedImage
 /**
  * Real-platform test of the view side of the review batch over a live editor fixture: the per-editor
  * [EditorReviewOverlay] (cards, card-hover highlight) and the per-document [DocumentReviewMarkers]
- * that the whole "export reflects in-IDE edits" story rests on (review-export D3 / ARCHITECTURE
- * §3.2) — [DocumentReviewMarkers.currentPositions] reads each comment's CURRENT line range off its
+ * that the whole "export reflects in-IDE edits" story rests on —
+ * [DocumentReviewMarkers.currentPositions] reads each comment's CURRENT line range off its
  * live [com.intellij.openapi.editor.markup.RangeHighlighter] and projects it back to a fresh
  * [Subject]. Real document edits, no mocking — so a regression in the marker→Subject read (e.g. an
  * off-by-one or a broken single-line collapse) fails here rather than silently shipping a mis-pointed
@@ -104,7 +104,7 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         assertTrue(markers.currentPositions().isEmpty())
     }
 
-    // -- One live-state pass: position and anchor text describe the same instant (design D3) --
+    // -- One live-state pass: position and anchor text describe the same instant --
 
     /**
      * [DocumentReviewMarkers.liveState] answers "where is it now?" and "what does it say now?" from one
@@ -205,7 +205,7 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
         assertTrue("the inlay carries the card's row", renderer.component is ReadingWidthRow)
     }
 
-    /** The comment currently open in an edit box has no card; on close its card reappears (design D3). */
+    /** The comment currently open in an edit box has no card; on close its card reappears. */
     fun `test the currently edited comment has no card`() {
         val comment = service.addComment(Subject.Line(url, 1), "edit me")
         assertEquals(setOf(comment.id), overlay.cardCommentIds)
@@ -236,7 +236,7 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
     /**
      * The other half of D5: the same iconless marker now carries the RESTING gutter bar, painted in
      * Relay's accent — the *only* place a commented range wears it, since the card carries no accent
-     * edge of its own (design R1).
+     * edge of its own.
      * The renderer is painted onto an offscreen image rather than merely asserted non-null, so a
      * regression that attaches a bar in some other color (e.g. the pale draft wash, invisible as a
      * stripe) fails here too.
@@ -309,7 +309,7 @@ class EditorReviewOverlayTest : BasePlatformTestCase() {
     // -- Document-save position sync (persist-live-comment-lines) --
 
     /**
-     * Document save is the third position-sync point (ARCHITECTURE §3.2): a save flushes the saved
+     * Document save is the third position-sync point: a save flushes the saved
      * file's comments' CURRENT live-marker ranges into the store via [ReviewBatchService.updatePosition],
      * and the flush is scoped to the saved document — a sibling open file's comment keeps its stored
      * lines because its own save never fired. Drives the real [EditorReviewOverlayService] and fires the

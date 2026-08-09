@@ -11,16 +11,14 @@ import io.github.zerlok.agentsessionrelay.delivery.ReviewDelivery
 import io.github.zerlok.agentsessionrelay.delivery.ReviewDeliveryService
 
 /**
- * "Submit review" — the presentation-layer trigger for the Delivery stage (ARCHITECTURE §3, spec
- * `review-delivery`). It is instantiated on the tool-window toolbar built by `comment-batch` (not
- * registered in `plugin.xml`, matching [RefreshAndReviewAction]).
+ * "Submit review" — the presentation-layer trigger for the Delivery stage (spec `review-delivery`).
+ * Instantiated on the tool-window toolbar rather than registered in `plugin.xml`, like
+ * [RefreshAndReviewAction].
  *
  * It owns **no** stage of the pipeline: the flush, verification, export, write, VFS refresh, and the
  * clear-or-preserve decision all belong to [ReviewDeliveryService], which is therefore drivable —
  * and assertable — without an [AnActionEvent]. All that is left here is invoking it and turning the
  * [ReviewDeliveryService.Outcome] into a balloon.
- *
- * Opening an agent connection or typing into a terminal is explicitly out of scope for this change.
  */
 class SubmitReviewAction :
     AnAction("Submit Review", "Write REVIEW.md at the project root and clear the batch", AllIcons.Actions.Upload),

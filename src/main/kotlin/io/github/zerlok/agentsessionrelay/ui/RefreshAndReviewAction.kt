@@ -6,10 +6,10 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.vfs.VirtualFileManager
 
 /**
- * "Refresh & review" (ARCHITECTURE §5.1): forces an asynchronous VFS refresh so edits written to
- * disk — by a local agent, or synced in from a remote sandbox — become visible before the user
- * reviews them. The refresh is async so it never blocks the EDT; it is a plain state action (no
- * `WriteCommandAction`, which is only for Document/PSI/VFS *edits*, ARCHITECTURE §5.3).
+ * "Refresh & review" (ARCHITECTURE.md — "Reading the working tree"): forces an asynchronous VFS
+ * refresh so edits written to disk — by a local agent, or synced in from a remote sandbox — become
+ * visible before the user reviews them. The refresh is async so it never blocks the EDT, and takes
+ * no `WriteCommandAction`, which is only for Document/PSI/VFS *edits*.
  */
 class RefreshAndReviewAction : AnAction("Refresh & Review", "Refresh files from disk before review", AllIcons.Actions.Refresh) {
 

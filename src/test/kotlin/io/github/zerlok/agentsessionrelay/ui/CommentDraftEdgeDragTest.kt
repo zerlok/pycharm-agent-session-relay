@@ -13,7 +13,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
  * The Ys are stated with the same editor visual-row calls the draft uses, so this pins the *mapping*,
  * not the row geometry: soft-wrap layout needs a real editor viewport width and stays a manual check
  * (change tasks 5.3). The range is read back off the draft's live wash highlighter — the view's own
- * position marker (ARCHITECTURE §3.2) — rather than through a test-only accessor.
+ * position marker — rather than through a test-only accessor.
  */
 class CommentDraftEdgeDragTest : BasePlatformTestCase() {
 

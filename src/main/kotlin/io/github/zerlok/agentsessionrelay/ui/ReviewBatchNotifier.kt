@@ -11,9 +11,7 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 
 /**
  * Presentation-layer subscriber on the [ReviewBatchListener] seam: turns a store change into a
- * user-facing notification. It holds no store handle — it reacts to the event, matching the layered
- * design (ARCHITECTURE §3.1). Until the gutter markers and tool window land, this is the only
- * feedback that a submitted comment reached the batch.
+ * user-facing balloon. It holds no store handle — it reacts to the event, like every other surface.
  */
 @Service(Service.Level.PROJECT)
 class ReviewBatchNotifier(private val project: Project) : ReviewBatchListener, Disposable {
@@ -39,7 +37,7 @@ class ReviewBatchNotifier(private val project: Project) : ReviewBatchListener, D
     }
 
     private fun describe(subject: Subject): String = when (subject) {
-        // Line numbers are 0-based in the model; show them 1-based like the editor gutter.
+        // 0-based in the domain, 1-based wherever the user reads them.
         is Subject.Line -> "line ${subject.line + 1}"
         is Subject.LineRange -> "lines ${subject.startLine + 1}-${subject.endLine + 1}"
         is Subject.File -> "whole file"

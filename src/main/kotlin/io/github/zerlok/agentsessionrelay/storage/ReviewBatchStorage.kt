@@ -4,10 +4,9 @@ import io.github.zerlok.agentsessionrelay.domain.CommentId
 import io.github.zerlok.agentsessionrelay.domain.ReviewComment
 
 /**
- * Dumb CRUD over [ReviewComment] records — the storage layer (ARCHITECTURE §3.1). It holds no
- * events and no policy; the logic layer mediates every read/write above it. *How* records are held
- * is hidden behind this interface so the persistence swap (in-memory → `PersistentStateComponent`)
- * touches storage alone.
+ * Dumb CRUD over [ReviewComment] records — the storage layer (ARCHITECTURE.md — "Layers"). It
+ * holds no events and no policy; the application layer mediates every read/write above it. *How*
+ * records are held is hidden behind this interface, so swapping the backing touches storage alone.
  */
 interface ReviewBatchStorage {
     /** Comments in insertion order. */
@@ -26,7 +25,10 @@ interface ReviewBatchStorage {
     fun clear()
 }
 
-/** In-memory batch store — the MVP backing (persistence is deferred, ARCHITECTURE §5.4). */
+/**
+ * In-memory batch store: the constructible backing, which is what makes the storage contract
+ * testable without the platform owning the instance.
+ */
 class InMemoryReviewBatchStorage : ReviewBatchStorage {
 
     // LinkedHashMap keeps insertion order so surfaces list comments as they were authored.
@@ -40,7 +42,6 @@ class InMemoryReviewBatchStorage : ReviewBatchStorage {
         comments[comment.id] = comment
     }
 
-    // A LinkedHashMap put on an existing key replaces the value in place, preserving insertion order.
     override fun update(comment: ReviewComment) {
         if (comments.containsKey(comment.id)) comments[comment.id] = comment
     }

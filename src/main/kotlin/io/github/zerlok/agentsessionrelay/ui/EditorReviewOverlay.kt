@@ -18,22 +18,20 @@ import io.github.zerlok.agentsessionrelay.logic.ReviewBatchListener
 import io.github.zerlok.agentsessionrelay.logic.ReviewBatchService
 
 /**
- * The per-editor view of the review batch (ARCHITECTURE §3.2, §3.3). It owns what genuinely belongs
- * to *one editor*: the read-only **card inlays** (an `Inlay` lives on the editor that shows it), the
- * card-hover range highlight, and the edit suppression. A comment's position marker is **not** one of
- * those — the markup it rides is document-scoped, so it is owned once per document by
- * [DocumentReviewMarkers], which this overlay reads from for every live-position question.
+ * The per-editor view of the review batch (ARCHITECTURE.md — "View objects and their lifetimes").
+ * It owns what genuinely belongs to *one editor*: the read-only **card inlays** (an `Inlay` lives on
+ * the editor that shows it), the card-hover range highlight, and the edit suppression. A comment's
+ * position marker is **not** one of those — the markup it rides is document-scoped, so it is owned
+ * once per document by [DocumentReviewMarkers], which this overlay reads for every live-position
+ * question.
  *
  * The store is the single source of truth: the overlay never keeps its own comment list. It seeds
  * from [ReviewBatchService.comments] on creation and, on every [ReviewBatchListener] event,
- * reconciles its cards **by diff** (retained-mode: add new, dispose removed, rebuild changed).
+ * reconciles its cards **by diff** — add new, dispose removed, rebuild changed.
  *
- * A card is a full-width block inlay under a stored comment's range showing its body plus Edit and
- * Delete. Cards reconcile off the store events (rebuilding on `commentUpdated`, since a card's
- * body/position are baked in at creation) and additionally off [CommentEditingListener] — the comment
- * currently open in an edit box is skipped so its card and box never overlap (design D3). A comment
- * whose recorded range does not fit this document gets no card at all, matching the marker it also
- * does not get (design D4).
+ * Cards also reconcile off [CommentEditingListener]: the comment currently open in an edit box is
+ * skipped so its card and box never overlap. A comment whose recorded range does not fit this
+ * document gets no card at all, matching the marker it also does not get.
  *
  * Lifecycle is owned by [EditorReviewOverlayService], which parents this [Disposable] to the project
  * service and disposes it in `editorReleased`.
@@ -56,9 +54,9 @@ class EditorReviewOverlay(
     private val cardModels = HashMap<CommentId, ReviewComment>()
 
     // The single transient "range + gutter" highlight shown for the comment whose card is currently
-    // hovered (design D4). View-only and never touching the store (retained-mode, store-is-truth): at
-    // most one exists at a time, built on hover-in from the comment's live marker range and disposed on
-    // hover-out (and with the overlay). At rest there is no stored range wash.
+    // hovered. View-only and never touching the store: at most one exists at a time, built on
+    // hover-in from the comment's live marker range and disposed on hover-out (and with the
+    // overlay). At rest there is no stored range wash.
     private var hoverHighlight: RangeHighlight? = null
     private var hoverHighlightId: CommentId? = null
 
@@ -84,13 +82,12 @@ class EditorReviewOverlay(
     override fun editingChanged() = reconcileCards()
 
     /**
-     * Reconcile the read-only cards (design D2/D3). A card is wanted for every stored comment on this
-     * file **except** the one currently open in an edit box, and except one whose recorded range does
-     * not exist in this document (design D4 — an orphaned comment has no range to point at, so it
-     * renders neither card nor gutter bar and lives in the tool window only). Because a card bakes in
-     * its body and offset, a wanted comment whose record differs from what its card was built from is
-     * rebuilt (dispose + add), not left in place — this is how a `commentUpdated` (body or position)
-     * refreshes the card.
+     * Reconcile the read-only cards. A card is wanted for every stored comment on this file
+     * **except** the one currently open in an edit box, and except one whose recorded range does not
+     * exist in this document — an orphaned comment has no range to point at, so it renders neither
+     * card nor gutter bar and lives in the tool window only. Because a card bakes in its body and
+     * offset, a wanted comment whose record differs from what its card was built from is rebuilt
+     * (dispose + add) rather than left in place; that is how a `commentUpdated` refreshes it.
      */
     private fun reconcileCards() {
         val url = fileUrl ?: return
@@ -113,11 +110,11 @@ class EditorReviewOverlay(
     }
 
     /**
-     * Places [comment]'s read-only card as a viewport-width block inlay under its range's bottom line —
-     * the same [Editor.addComponentInlay] placement the authoring box uses, so card and box anchor and
-     * size identically. Card **Edit** re-opens the box seeded (via [CommentDraftController], passing
-     * the comment at its *live* range so the box opens where the marker actually is); **Delete** routes
-     * through the store so every surface reconciles off the resulting event.
+     * Places [comment]'s read-only card as a viewport-width block inlay under its range's bottom
+     * line — the same [Editor.addComponentInlay] placement the authoring box uses, so card and box
+     * anchor and size identically. **Edit** re-opens the box seeded (via [CommentDraftController],
+     * passing the comment at its *live* range so the box opens where the marker actually is);
+     * **Delete** routes through the store so every surface reconciles off the resulting event.
      *
      * Only ever called for a comment whose range fits the document ([DocumentReviewMarkers.fits] gates
      * the reconcile above), so the line offsets below need no clamp.
@@ -137,13 +134,12 @@ class EditorReviewOverlay(
                 CommentDraftController.getInstance(project).openForEdit(editor, target)
             },
             onDelete = { ReviewBatchService.getInstance(project).removeComment(comment.id) },
-            // Reveal / clear this comment's range as the pointer enters / leaves the card (design D4).
+            // Reveal / clear this comment's range as the pointer enters / leaves the card.
             onHover = { hovered -> onCardHover(comment.id, hovered) },
         )
 
-        // `fullWidth` has no counterpart here: the alignment IS that concept, and FIT_VIEWPORT_WIDTH
-        // additionally re-lays the row out on every visible-area change — the tracking Relay used to
-        // run its own listener for.
+        // FIT_VIEWPORT_WIDTH is what makes the row span the viewport AND re-lay itself out on every
+        // visible-area change, so following the editor needs no listener of Relay's own.
         val properties = InlayProperties()
             .relatesToPrecedingText(true)
             .showAbove(false)
@@ -167,10 +163,10 @@ class EditorReviewOverlay(
     }
 
     /**
-     * Card hover-in / hover-out for [id] (design D4), the seam [StoredCommentCard]'s enter/exit calls
-     * back into (also a test seam). On hover-in, show the shared "range + gutter" highlight over the
-     * comment's **live** marker range — the same source the sync points flush — replacing any current
-     * one; on hover-out, dispose it. View-only: it never touches the store.
+     * Card hover-in / hover-out for [id] — the seam [StoredCommentCard]'s enter/exit calls back into.
+     * On hover-in, show the shared "range + gutter" highlight over the comment's **live** marker
+     * range (the same source the sync points flush), replacing any current one; on hover-out,
+     * dispose it. View-only: it never touches the store.
      */
     internal fun onCardHover(id: CommentId, hovered: Boolean) {
         if (hovered) showHoverHighlight(id) else clearHoverHighlightFor(id)
@@ -195,10 +191,10 @@ class EditorReviewOverlay(
         hoverHighlightId = null
     }
 
-    /** The comment whose range is currently highlighted on card hover, if any — a test seam for D4. */
+    /** The comment whose range is currently highlighted on card hover, if any — a test seam. */
     internal val hoverHighlightCommentId: CommentId? get() = hoverHighlightId
 
-    /** The comments that currently have a read-only card in this editor — a test seam for reconcile. */
+    /** The comments that currently have a read-only card in this editor — a test seam. */
     internal val cardCommentIds: Set<CommentId> get() = cards.keys.toSet()
 
     override fun dispose() {

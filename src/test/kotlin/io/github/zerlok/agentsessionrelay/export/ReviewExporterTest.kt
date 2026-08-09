@@ -10,8 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for the pure [ReviewExporter] (tasks 2.1). No editor/VFS/filesystem needed — the
- * exporter is a pure function of the batch (design D5).
+ * Unit tests for the pure [ReviewExporter]. No editor/VFS/filesystem needed — the
+ * exporter is a pure function of the batch.
  */
 class ReviewExporterTest {
 
@@ -24,7 +24,7 @@ class ReviewExporterTest {
 
     @Test
     fun `single-line comment renders the pinned @path#L form`() {
-        // Domain is 0-based; line 41 -> reference L42 (design D-fmt).
+        // Domain is 0-based; line 41 -> reference L42.
         val out = ReviewExporter.export(listOf(comment(Subject.Line(url("src/app.py"), 41), "fix it")), basePath)
 
         assertEquals("@src/app.py#L42\n> fix it\n", out)
@@ -72,7 +72,7 @@ class ReviewExporterTest {
         assertEquals("", ReviewExporter.export(batch, basePath))
     }
 
-    // -- The anchor flags (verified-delivery, design D3) --
+    // -- The anchor flags --
 
     private fun stale(subject: Subject, body: String, id: String = "id") =
         comment(subject, body, id).copy(status = CommentStatus.STALE)

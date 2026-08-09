@@ -14,12 +14,12 @@ import com.intellij.openapi.project.Project
  * style). Clicking the icon opens an inline comment draft via [CommentDraftController]. Only one
  * hover marker exists at a time.
  *
- * While a draft is open this same shared editor mouse channel drives its adjustable-range edge grips
- * (`adjustable-comment-range`): pointer moves within an edge grab zone show the resize affordance
- * (and suppress the competing "+"), a press on an edge claims the gesture (`consume()` so the editor
- * never text-selects), drags resize the range live, and release rebuilds the box. All edge work is
- * delegated to the active [CommentDraft] and is scoped to when a draft is open, so it never fights
- * the "+" hover or the gutter markers.
+ * While a draft is open this same shared editor mouse channel drives its range edge grips: pointer
+ * moves within an edge grab zone show the resize affordance (and suppress the competing "+"), a
+ * press on an edge claims the gesture (`consume()`, so the editor never text-selects), drags resize
+ * the range live, and release rebuilds the box. All edge work is delegated to the active
+ * [CommentDraft] and is scoped to when a draft is open, so it never fights the "+" hover or the
+ * gutter markers.
  */
 class RelayHoverListener(private val project: Project) : EditorMouseMotionListener, EditorMouseListener {
 
@@ -37,7 +37,7 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
         if (editor.project != project) return
 
         // While a draft is open, let it own the edge affordance first. If the pointer is on a range
-        // edge, suppress the "+" so the two don't compete (task 2.3).
+        // edge, suppress the "+" so the two don't compete.
         val draft = activeDraftFor(editor)
         if (draft != null) {
             val onEdge = draft.onMouseMoved(e.mouseEvent.point.y, e.area == EditorMouseEventArea.EDITING_AREA)
@@ -47,7 +47,7 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
             }
         }
 
-        // Confine the "+" to the left gutter (D1): show it only while the pointer is over a gutter
+        // Confine the "+" to the left gutter: show it only while the pointer is over a gutter
         // sub-area and suppress it over the code (editing) area. "Gutter" is *not* EDITING_AREA — i.e.
         // LINE_NUMBERS_AREA, LINE_MARKERS_AREA, ANNOTATIONS_AREA, FOLDING_OUTLINE_AREA. Spanning every
         // non-editing gutter area (rather than the number column alone) keeps the icon clickable: the
@@ -81,7 +81,7 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
     override fun mousePressed(e: EditorMouseEvent) {
         val draft = activeDraftFor(e.editor) ?: return
         if (draft.onMousePressed(e.mouseEvent.point.y, e.area == EditorMouseEventArea.EDITING_AREA)) {
-            // Claim the gesture so the editor doesn't also start a text selection (D2). Drop the "+".
+            // Claim the gesture so the editor doesn't also start a text selection. Drop the "+".
             clear()
             e.consume()
         }
@@ -89,7 +89,7 @@ class RelayHoverListener(private val project: Project) : EditorMouseMotionListen
 
     override fun mouseReleased(e: EditorMouseEvent) {
         // A drag can end with the pointer off the editor; the release is still delivered here to the
-        // component that captured the press, so the box always rebuilds (design "release outside").
+        // component that captured the press, so the box always rebuilds.
         val draft = activeDraftFor(e.editor) ?: return
         if (draft.onMouseReleased()) e.consume()
     }

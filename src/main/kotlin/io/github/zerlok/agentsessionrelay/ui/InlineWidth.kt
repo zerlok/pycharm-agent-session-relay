@@ -7,22 +7,18 @@ import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
 
 /**
- * The one width number the plugin still owns: the comfortable reading measure both inline review
- * surfaces — the authoring box ([CommentDraft]) and the read-only card ([StoredCommentCard]) — are
- * capped at, so neither becomes an unreadable edge-to-edge stripe on a wide monitor.
+ * The one width number the plugin owns: the comfortable reading measure both inline surfaces — the
+ * authoring box ([CommentDraft]) and the read-only card ([StoredCommentCard]) — are capped at, so
+ * neither becomes an unreadable edge-to-edge stripe on a wide monitor.
  *
- * Everything else about width belongs to the platform now. The surfaces are placed with
+ * Everything else about width belongs to the platform. The surfaces are placed with
  * `ComponentInlayAlignment.FIT_VIEWPORT_WIDTH`, which lays their row out at the editor's viewport
- * width less its vertical scrollbar and re-lays it out on every visible-area and content change; the
- * cap and the floating-widget reserve ([overlayInsetPx]) are applied inside that row by
- * [ReadingWidthRow]. The editor-geometry arithmetic that used to
- * live here — the viewport read, the right-margin cap, the column conversion — and the
- * `InlineWidthWatcher` that pushed re-measures are all gone with it, because they were a
- * reimplementation of that.
+ * width less its vertical scrollbar and re-lays it out on every visible-area and content change;
+ * the cap and the floating-widget reserve ([overlayInsetPx]) are applied inside that row by
+ * [ReadingWidthRow]. See UI.md — "Sizing".
  *
- * The right margin is deliberately **not** a cap any more: the platform's rule has no such term, the
- * reading measure is UI-font-relative where a margin is editor-column-relative, and keeping it would
- * have meant keeping the hand-derived path this replaced.
+ * The editor's right margin is deliberately **not** a second cap: the platform's rule has no such
+ * term, and the reading measure is UI-font-relative where a margin is editor-column-relative.
  */
 object InlineWidth {
 

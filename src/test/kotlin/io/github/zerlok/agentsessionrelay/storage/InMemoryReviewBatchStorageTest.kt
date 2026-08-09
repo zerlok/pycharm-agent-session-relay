@@ -10,8 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for the dumb-CRUD storage layer ([InMemoryReviewBatchStorage], task 8.1). Pure Kotlin —
- * no platform fixture: storage holds only inert records (ARCHITECTURE §3.1, §3.2).
+ * Unit tests for the dumb-CRUD storage layer ([InMemoryReviewBatchStorage]). Pure Kotlin —
+ * no platform fixture: storage holds only inert records.
  */
 class InMemoryReviewBatchStorageTest {
 

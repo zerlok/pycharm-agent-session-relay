@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for the pure anchoring helpers (ARCHITECTURE §5.2): [Anchoring.contextHash], whose seed
+ * Unit tests for the pure anchoring helpers: [Anchoring.contextHash], whose seed
  * must be stable across JVMs and runs (so it is deterministic and format-checked here), and
  * [Anchoring.matches], the anchor check the export sync point runs.
  */
@@ -56,7 +56,7 @@ class AnchoringTest {
         assertNotEquals(Anchoring.contextHash("ab"), Anchoring.contextHash("ba"))
     }
 
-    // -- matches(): the tier-2 anchor check (design D1) --
+    // -- matches(): the tier-2 anchor check --
 
     @Test
     fun `identical anchor text matches`() {
@@ -89,7 +89,7 @@ class AnchoringTest {
 
     @Test
     fun `a null recorded anchor matches anything`() {
-        // "Nothing to verify" is not evidence of drift (design D6).
+        // "Nothing to verify" is not evidence of drift.
         assertTrue(Anchoring.matches(null, "whatever is there now"))
     }
 
